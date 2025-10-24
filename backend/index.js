@@ -13,7 +13,7 @@ let corsOptions = {
       : [
           "https://icmobi.org",
           "https://www.icmobi.org",
-          "https://icmobi.herokuapp.com",
+          "https://icmobi-website-1f2b4bdb1c05.herokuapp.com",
         ],
   credentials: true, // Add this for cookies/auth
 };

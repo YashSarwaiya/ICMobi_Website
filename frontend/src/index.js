@@ -1,20 +1,24 @@
-import React from 'react';
-import ReactDOM from 'react-dom';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import React from "react";
+import ReactDOM from "react-dom";
+import "./index.css";
+import App from "./App";
+import reportWebVitals from "./reportWebVitals";
 
-import axios from 'axios';
-axios.defaults.baseURL = process.env.NODE_ENV === "development" ? "http://localhost:8080" : "https://www.icmobi.org";
+import axios from "axios";
+
+// Fix the baseURL logic
+if (process.env.NODE_ENV === "development") {
+  axios.defaults.baseURL = "http://localhost:8080";
+} else {
+  // In production, use relative URLs (same domain)
+  axios.defaults.baseURL = "";
+}
 
 ReactDOM.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
-  document.getElementById('root')
+  document.getElementById("root")
 );
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();
