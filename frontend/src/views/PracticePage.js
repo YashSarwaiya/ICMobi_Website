@@ -1,5 +1,4 @@
 import { React, useState, useEffect } from "react";
-import axios from "axios";
 import Form from "react-bootstrap/Form";
 import Button from "react-bootstrap/Button";
 import Container from "react-bootstrap/Container";
@@ -10,19 +9,24 @@ import Alert from "react-bootstrap/Alert";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LabelModal from "../components/LabelModal";
 import { AuthConsumer } from "../helpers/AuthContext";
+import { useOptimizedImage } from "../hooks/useOptimizedImage";
 
 import Sidebar from "../components/Sidebar";
 
 const PracticePage = () => {
-  //Loading variables
-  const [isLoading, setIsLoading] = useState(false);
+  // Use optimized image hook
+  const {
+    labelImage,
+    labelFile,
+    isLoading,
+    error: imageError,
+    loadImage,
+    setLabelImage,
+    setLabelFile,
+    setError: setImageError,
+  } = useOptimizedImage();
 
-  //Width variables
   const [width, setWidth] = useState(window.innerWidth);
-
-  //Label image data
-  const [labelImage, setLabelImage] = useState(null);
-  const [labelFile, setLabelFile] = useState("");
 
   //Checkbox values
   const [brain, setBrain] = useState(false);
@@ -39,7 +43,6 @@ const PracticePage = () => {
 
   //Submission
   const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
 
   const handleWindowSizeChange = () => {
@@ -112,25 +115,17 @@ const PracticePage = () => {
   const getNext = () => {
     console.log("Getting next practice image...");
     setStatus("");
-    setError("");
     setValidationError("");
+    setImageError("");
+
+    // Clean up previous blob URL
+    if (labelImage && labelImage.startsWith("blob:")) {
+      URL.revokeObjectURL(labelImage);
+    }
+
     setLabelImage(null);
     setLabelFile("");
     setPrac(null);
-    getImage();
-  };
-
-  const getImage = async () => {
-    // Prevent multiple simultaneous requests
-    if (isLoading) {
-      console.log("Already loading, skipping request");
-      return;
-    }
-
-    //While getting image, loading is true
-    setIsLoading(true);
-    setError("");
-    setValidationError("");
 
     //Set all checkboxes to blank
     setBrain(false);
@@ -142,74 +137,15 @@ const PracticePage = () => {
     setOther(false);
     setUnsure(false);
 
+    // Load next image
     const email = localStorage.getItem("Email") || "guest";
-    console.log("Getting practice image for:", email);
-
-    try {
-      // Get image filename
-      const filenameResponse = await axios.get("/dropbox/imagefile", {
-        params: { email: email },
-        timeout: 30000,
-      });
-
-      console.log("Got filename:", filenameResponse.data);
-
-      if (!filenameResponse.data) {
-        throw new Error("No filename received from server");
-      }
-
-      const filename = filenameResponse.data;
-      setLabelFile(filename);
-
-      // Get image data
-      const imageResponse = await axios.get("/dropbox/imagedata", {
-        responseType: "arraybuffer",
-        params: { imagefile: filename },
-        timeout: 30000,
-      });
-
-      console.log("Got image data, size:", imageResponse.data.byteLength);
-
-      if (!imageResponse.data || imageResponse.data.byteLength === 0) {
-        throw new Error("Empty image data received");
-      }
-
-      // Convert to base64
-      const base64 = btoa(
-        new Uint8Array(imageResponse.data).reduce(
-          (data, byte) => data + String.fromCharCode(byte),
-          ""
-        )
-      );
-
-      setLabelImage(base64);
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Error loading image:", error);
-
-      let errorMsg = "Error loading image. ";
-
-      if (error.code === "ECONNABORTED") {
-        errorMsg += "Request timed out. Please check your internet connection.";
-      } else if (error.response) {
-        errorMsg +=
-          error.response.data?.error ||
-          error.response.statusText ||
-          "Server error.";
-      } else if (error.request) {
-        errorMsg += "No response from server. Please check your connection.";
-      } else {
-        errorMsg += error.message || "Unknown error occurred.";
-      }
-
-      setError(errorMsg);
-      setIsLoading(false);
-    }
+    loadImage(email);
   };
 
   useEffect(() => {
     if (!status && !labelImage && !isLoading) {
-      getImage();
+      const email = localStorage.getItem("Email") || "guest";
+      loadImage(email);
     }
 
     //Get window size
@@ -237,15 +173,15 @@ const PracticePage = () => {
                 see how your labels compare with others!
               </p>
 
-              {error && (
+              {imageError && (
                 <Container style={{ width: "50%", marginBottom: "10px" }}>
                   <Alert
                     variant="danger"
                     dismissible
-                    onClose={() => setError("")}
+                    onClose={() => setImageError("")}
                   >
                     <Alert.Heading>Error</Alert.Heading>
-                    <p>{error}</p>
+                    <p>{imageError}</p>
                     <Button
                       variant="outline-danger"
                       size="sm"
@@ -281,7 +217,7 @@ const PracticePage = () => {
                   }}
                 >
                   <img
-                    src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
+                    src={labelImage} // Now using blob URL instead of base64!
                     alt="Labeling data"
                     width="80%"
                     height="auto"
@@ -290,7 +226,7 @@ const PracticePage = () => {
                       opacity: status ? "0.33" : "1.0",
                     }}
                     onError={() => {
-                      setError(
+                      setImageError(
                         "Failed to display image. The image may be corrupted."
                       );
                       setLabelImage(null);

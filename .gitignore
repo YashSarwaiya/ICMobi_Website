@@ -21,3 +21,8 @@ __hidden_content.txt
 eeglabel.bashrc
 backend/.env
 .env
+
+# Cache directory for images
+backend/cache/
+cache/
+*.cache
