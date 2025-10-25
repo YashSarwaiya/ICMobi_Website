@@ -11,8 +11,8 @@ import { CaretRightFill } from "react-bootstrap-icons";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LabelModal from "../components/LabelModal";
 import { AuthContext, AuthConsumer } from "../helpers/AuthContext";
-
 import Sidebar from "../components/Sidebar";
+import "../styles/responsive.css";
 
 const LabelPage = () => {
   const context = useContext(AuthContext);
@@ -20,9 +20,6 @@ const LabelPage = () => {
   //Loading variables
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  //Width variables
-  const [width, setWidth] = useState(window.innerWidth);
 
   //Label image data
   const [labelImage, setLabelImage] = useState(null);
@@ -42,10 +39,6 @@ const LabelPage = () => {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
-
-  const handleWindowSizeChange = () => {
-    setWidth(window.innerWidth);
-  };
 
   const validateSelection = () => {
     const hasSelection =
@@ -254,22 +247,24 @@ const LabelPage = () => {
     if (!status && !labelImage && !isLoading) {
       getImage();
     }
-
-    //Get window size
-    window.addEventListener("resize", handleWindowSizeChange);
-    return () => {
-      window.removeEventListener("resize", handleWindowSizeChange);
-    };
   }, []);
 
   const renderLabelingInterface = () => (
     <>
       {error && (
-        <Container style={{ width: "50%", marginBottom: "10px" }}>
+        <Container
+          className="mobile-padding-sm"
+          style={{ width: "100%", maxWidth: "600px", marginBottom: "10px" }}
+        >
           <Alert variant="danger" dismissible onClose={() => setError("")}>
             <Alert.Heading>Error</Alert.Heading>
             <p>{error}</p>
-            <Button variant="outline-danger" size="sm" onClick={getNext}>
+            <Button
+              variant="outline-danger"
+              size="sm"
+              onClick={getNext}
+              className="btn-responsive"
+            >
               Try Again
             </Button>
           </Alert>
@@ -277,7 +272,10 @@ const LabelPage = () => {
       )}
 
       {validationError && (
-        <Container style={{ width: "50%", marginBottom: "10px" }}>
+        <Container
+          className="mobile-padding-sm"
+          style={{ width: "100%", maxWidth: "600px", marginBottom: "10px" }}
+        >
           <Alert
             variant="warning"
             dismissible
@@ -293,33 +291,53 @@ const LabelPage = () => {
         <LoadingSpinner />
       ) : labelImage ? (
         <div
+          className="flex-responsive"
           style={{
             display: "flex",
+            flexDirection: "row",
             position: "relative",
             minHeight: "400px",
+            width: "100%",
+            maxWidth: "1200px",
+            margin: "0 auto",
+            padding: "10px",
           }}
         >
-          <img
-            src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
-            alt="Labeling data"
-            width="80%"
-            height="auto"
-            style={{
-              border: "2px solid #C0C2C9",
-              opacity: status ? "0.33" : "1.0",
-            }}
-            onError={() => {
-              setError("Failed to display image. The image may be corrupted.");
-              setLabelImage(null);
-            }}
-          />
+          <div style={{ flex: "1", minWidth: "0", marginBottom: "20px" }}>
+            <img
+              src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
+              alt="Labeling data"
+              className="img-responsive"
+              style={{
+                width: "100%",
+                height: "auto",
+                border: "2px solid #C0C2C9",
+                opacity: status ? "0.33" : "1.0",
+              }}
+              onError={() => {
+                setError(
+                  "Failed to display image. The image may be corrupted."
+                );
+                setLabelImage(null);
+              }}
+            />
+          </div>
 
-          <div>
+          <div
+            style={{
+              flex: "0 0 auto",
+              minWidth: "150px",
+              padding: "0 10px",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             <Form.Group
-              className="flex-row"
+              className="flex-column"
               controlId="formBasicCheckbox"
               style={{
                 opacity: status ? "0.33" : "1.0",
+                flex: "1",
               }}
             >
               <Form.Check
@@ -328,12 +346,12 @@ const LabelPage = () => {
                 label="Brain"
                 checked={brain}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#00A5E0",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setBrain(e.target.checked);
@@ -346,12 +364,12 @@ const LabelPage = () => {
                 label="Muscle"
                 checked={muscle}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#EF9CDA",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setMuscle(e.target.checked);
@@ -364,12 +382,12 @@ const LabelPage = () => {
                 label="Eye"
                 checked={eye}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#89A1EF",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setEye(e.target.checked);
@@ -382,12 +400,12 @@ const LabelPage = () => {
                 label="Heart"
                 checked={heart}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#FECEF1",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setHeart(e.target.checked);
@@ -400,12 +418,12 @@ const LabelPage = () => {
                 label="Line Noise"
                 checked={linenoise}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#C2EABD",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setLinenoise(e.target.checked);
@@ -418,12 +436,12 @@ const LabelPage = () => {
                 label="Chan Noise"
                 checked={channoise}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#32CBFF",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setChannoise(e.target.checked);
@@ -436,12 +454,12 @@ const LabelPage = () => {
                 label="Other"
                 checked={other}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#DCF2B0",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setOther(e.target.checked);
@@ -454,12 +472,12 @@ const LabelPage = () => {
                 label="Unsure"
                 checked={unsure}
                 disabled={!!status || isSubmitting}
+                className="mb-2"
                 style={{
                   textAlign: "left",
                   paddingLeft: "40px",
                   borderRadius: "10px",
                   background: "#FFE5B4",
-                  margin: "10px",
                 }}
                 onChange={(e) => {
                   setUnsure(e.target.checked);
@@ -468,54 +486,54 @@ const LabelPage = () => {
               />
             </Form.Group>
 
-            {!status && (
-              <Button
-                variant="secondary"
-                type="button"
-                onClick={getNext}
-                disabled={isSubmitting}
-                style={{
-                  position: "absolute",
-                  bottom: "40px",
-                }}
-              >
-                Skip <CaretRightFill />
-              </Button>
-            )}
-            {!status ? (
-              <Button
-                variant="primary"
-                type="button"
-                onClick={submitResults}
-                disabled={isSubmitting}
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                }}
-              >
-                {isSubmitting ? "Submitting..." : "Submit"}
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                type="button"
-                onClick={getNext}
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                }}
-              >
-                Next
-              </Button>
-            )}
+            <div className="mt-auto" style={{ marginTop: "20px" }}>
+              {!status && (
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={getNext}
+                  disabled={isSubmitting}
+                  className="btn-responsive mb-2"
+                  style={{ width: "100%" }}
+                >
+                  Skip <CaretRightFill />
+                </Button>
+              )}
+              {!status ? (
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={submitResults}
+                  disabled={isSubmitting}
+                  className="btn-responsive"
+                  style={{ width: "100%" }}
+                >
+                  {isSubmitting ? "Submitting..." : "Submit"}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={getNext}
+                  className="btn-responsive"
+                  style={{ width: "100%" }}
+                >
+                  Next
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       ) : (
-        <Container style={{ paddingTop: "50px" }}>
+        <Container className="mobile-padding-sm" style={{ paddingTop: "50px" }}>
           <Alert variant="info">
             No image to display. Please click "Try Again" or refresh the page.
           </Alert>
-          <Button variant="primary" onClick={getNext}>
+          <Button
+            variant="primary"
+            onClick={getNext}
+            className="btn-responsive"
+          >
             Load Image
           </Button>
         </Container>
@@ -523,11 +541,20 @@ const LabelPage = () => {
 
       <br />
       {status === "success" && (
-        <Container style={{ width: "50%" }}>
+        <Container
+          className="mobile-padding-sm"
+          style={{ width: "100%", maxWidth: "600px" }}
+        >
           <Alert variant="success">
             <Row>
-              <Col>✓ Label Successfully Submitted!</Col>
-              <Col style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Col xs={12} md={8} className="mb-2 mb-md-0">
+                ✓ Label Successfully Submitted!
+              </Col>
+              <Col
+                xs={12}
+                md={4}
+                style={{ display: "flex", justifyContent: "flex-end" }}
+              >
                 <LabelModal
                   open={true}
                   getStatus={true}
@@ -541,15 +568,25 @@ const LabelPage = () => {
         </Container>
       )}
       {status === "failed" && (
-        <Container style={{ width: "50%" }}>
+        <Container
+          className="mobile-padding-sm"
+          style={{ width: "100%", maxWidth: "600px" }}
+        >
           <Alert variant="danger">
             <Row>
-              <Col>✗ Label Submission Failed. {error}</Col>
-              <Col style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Col xs={12} md={8} className="mb-2 mb-md-0">
+                ✗ Label Submission Failed. {error}
+              </Col>
+              <Col
+                xs={12}
+                md={4}
+                style={{ display: "flex", justifyContent: "flex-end" }}
+              >
                 <Button
                   variant="outline-danger"
                   size="sm"
                   onClick={() => setStatus("")}
+                  className="btn-responsive"
                 >
                   Retry
                 </Button>
@@ -568,14 +605,12 @@ const LabelPage = () => {
         if (Auth === "Admin") {
           return (
             <div>
-              {width > 768 && <Sidebar />}
-              <div
-                style={{
-                  paddingLeft: width > 768 ? "250px" : "0px",
-                  paddingTop: "90px",
-                }}
-              >
-                <Container style={{ paddingBottom: "10px" }}>
+              <Sidebar />
+              <div className="content-with-sidebar">
+                <Container
+                  className="mobile-padding-sm"
+                  style={{ paddingBottom: "10px" }}
+                >
                   <Card>
                     <Card.Header>
                       Hey {Name}, you are logged in as an admin. Your labeling
@@ -593,14 +628,12 @@ const LabelPage = () => {
         else if (Auth === "User") {
           return (
             <div>
-              {width > 768 && <Sidebar />}
-              <div
-                style={{
-                  paddingLeft: width > 768 ? "250px" : "0px",
-                  paddingTop: "90px",
-                }}
-              >
-                <Container style={{ paddingBottom: "10px" }}>
+              <Sidebar />
+              <div className="content-with-sidebar">
+                <Container
+                  className="mobile-padding-sm"
+                  style={{ paddingBottom: "10px" }}
+                >
                   <Card>
                     <Card.Header>
                       Hey {Name}, you are logged in. Your labeling progress will
@@ -618,22 +651,20 @@ const LabelPage = () => {
         else {
           return (
             <div>
-              {width > 768 && <Sidebar />}
-              <div
-                style={{
-                  paddingLeft: width > 768 ? "250px" : "0px",
-                  paddingTop: "90px",
-                }}
-              >
-                <Container style={{ padding: "50px" }}>
+              <Sidebar />
+              <div className="content-with-sidebar">
+                <Container
+                  className="mobile-padding-sm"
+                  style={{ padding: "50px 15px" }}
+                >
                   <Alert variant="warning">
                     <Alert.Heading>Authentication Required</Alert.Heading>
                     <p>Labeling is not available as you have not logged in.</p>
                   </Alert>
                 </Container>
-                <Container>
+                <Container className="mobile-padding-sm">
                   <Row>
-                    <Col>
+                    <Col xs={12} md={6} className="mb-3 mb-md-0">
                       <Card>
                         <Card.Header as="h5">Practice</Card.Header>
                         <Card.Title style={{ padding: "20px" }}>
@@ -650,7 +681,7 @@ const LabelPage = () => {
                         </Container>
                       </Card>
                     </Col>
-                    <Col>
+                    <Col xs={12} md={6}>
                       <Card>
                         <Card.Header as="h5">Contribute</Card.Header>
                         <Card.Title style={{ padding: "20px" }}>

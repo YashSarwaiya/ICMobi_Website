@@ -6,6 +6,7 @@ import Card from "react-bootstrap/Card";
 import Alert from "react-bootstrap/Alert";
 import { navigate } from "@reach/router";
 import Sidebar from "../components/Sidebar";
+import "../styles/responsive.css";
 
 const ContactUs = () => {
   const [key, setKey] = useState("back");
@@ -35,46 +36,82 @@ const ContactUs = () => {
   return (
     <div>
       <Sidebar />
-      <Container style={{ paddingLeft: "250px", paddingTop: "100px" }}>
-        <Tabs
-          id="controlled-tab"
-          activeKey={key}
-          onSelect={(k) => changeTab(k)}
-          className="mb-3"
-        >
-          <Tab eventKey="feedback" title="Feedback">
-            <Card>
-              <Container style={{ padding: "20px" }}>
-                <Container style={{ textAlign: "left" }}>
-                  <iframe
-                    title="feedbackform"
-                    src="https://docs.google.com/forms/d/e/1FAIpQLSeubG98EZ-YlF14mg44-4xI9sGPlJkwUJFko5Wy8vSUqETdeg/viewform?embedded=true"
-                    width="100%"
-                    height="960"
-                    frameborder="0"
-                    marginheight="0"
-                    marginwidth="0"
-                  >
-                    Loading…
-                  </iframe>
-                  <Alert variant="info">
-                    If you would like to contact us directly, please go to the{" "}
-                    <a href="/contact#info">Contact Info Tab</a> to get
-                    information on how to reach us.
-                  </Alert>
+      <div className="content-with-sidebar">
+        <Container className="mobile-padding-sm">
+          <Tabs
+            id="controlled-tab"
+            activeKey={key}
+            onSelect={(k) => changeTab(k)}
+            className="mb-3"
+          >
+            <Tab eventKey="feedback" title="Feedback">
+              <Card>
+                <Container style={{ padding: "20px" }}>
+                  <Container style={{ textAlign: "left" }}>
+                    <iframe
+                      title="feedbackform"
+                      src="https://docs.google.com/forms/d/e/1FAIpQLSeubG98EZ-YlF14mg44-4xI9sGPlJkwUJFko5Wy8vSUqETdeg/viewform?embedded=true"
+                      width="100%"
+                      height="960"
+                      frameBorder="0"
+                      marginHeight="0"
+                      marginWidth="0"
+                    >
+                      Loading…
+                    </iframe>
+                    <Alert variant="info">
+                      If you would like to contact us directly, please go to the{" "}
+                      <a href="/contact#info">Contact Info Tab</a> to get
+                      information on how to reach us.
+                    </Alert>
+                  </Container>
                 </Container>
-              </Container>
-            </Card>
-          </Tab>
-          <Tab eventKey="contribute" title="Contributing Data">
-            <Card>
-              <Container style={{ padding: "20px" }}>
-                <Container style={{ textAlign: "left" }}>
-                  <Alert variant="info">
-                    We are working on creating forms that will make it easier
-                    for you to reach out and contribute data to our project. In
-                    the meantime, please email either of the following to begin
-                    the process of contributing data to the project:
+              </Card>
+            </Tab>
+            <Tab eventKey="contribute" title="Contributing Data">
+              <Card>
+                <Container style={{ padding: "20px" }}>
+                  <Container style={{ textAlign: "left" }}>
+                    <Alert variant="info">
+                      We are working on creating forms that will make it easier
+                      for you to reach out and contribute data to our project.
+                      In the meantime, please email either of the following to
+                      begin the process of contributing data to the project:
+                      <br />
+                      <br />
+                      <ul>
+                        <li>
+                          <a href="mailto:y.sarwaiya@ufl.edu">
+                            y.sarwaiya@ufl.edu
+                          </a>
+                        </li>
+                        <li>
+                          <a href="mailto:icmobiproject@gmail.com">
+                            icmobiproject@gmail.com
+                          </a>
+                        </li>
+                      </ul>
+                    </Alert>
+                  </Container>
+                </Container>
+              </Card>
+            </Tab>
+            <Tab eventKey="qa" title="Q&A">
+              <Card>
+                <Container style={{ padding: "20px" }}>
+                  <Container style={{ textAlign: "left" }}>
+                    We will update this section with the most frequent questions
+                    and their answers.
+                  </Container>
+                </Container>
+              </Card>
+            </Tab>
+            <Tab eventKey="info" title="Contact Info">
+              <Card>
+                <Container style={{ padding: "20px" }}>
+                  <Container style={{ textAlign: "left" }}>
+                    For data contributions, questions, comments, or concerns,
+                    please email either of the following:
                     <br />
                     <br />
                     <ul>
@@ -89,45 +126,13 @@ const ContactUs = () => {
                         </a>
                       </li>
                     </ul>
-                  </Alert>
+                  </Container>
                 </Container>
-              </Container>
-            </Card>
-          </Tab>
-          <Tab eventKey="qa" title="Q&A">
-            <Card>
-              <Container style={{ padding: "20px" }}>
-                <Container style={{ textAlign: "left" }}>
-                  We will update this section with the most frequent questions
-                  and their answers.
-                </Container>
-              </Container>
-            </Card>
-          </Tab>
-          <Tab eventKey="info" title="Contact Info">
-            <Card>
-              <Container style={{ padding: "20px" }}>
-                <Container style={{ textAlign: "left" }}>
-                  For data contributions, questions, comments, or concerns,
-                  please email either of the following:
-                  <br />
-                  <br />
-                  <ul>
-                    <li>
-                      <a href="mailto:y.sarwaiya@ufl.edu">y.sarwaiya@ufl.edu</a>
-                    </li>
-                    <li>
-                      <a href="mailto:icmobiproject@gmail.com">
-                        icmobiproject@gmail.com
-                      </a>
-                    </li>
-                  </ul>
-                </Container>
-              </Container>
-            </Card>
-          </Tab>
-        </Tabs>
-      </Container>
+              </Card>
+            </Tab>
+          </Tabs>
+        </Container>
+      </div>
     </div>
   );
 };

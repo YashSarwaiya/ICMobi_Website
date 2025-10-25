@@ -10,15 +10,12 @@ import Alert from "react-bootstrap/Alert";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LabelModal from "../components/LabelModal";
 import { AuthConsumer } from "../helpers/AuthContext";
-
 import Sidebar from "../components/Sidebar";
+import "../styles/responsive.css";
 
 const PracticePage = () => {
   //Loading variables
   const [isLoading, setIsLoading] = useState(false);
-
-  //Width variables
-  const [width, setWidth] = useState(window.innerWidth);
 
   //Label image data
   const [labelImage, setLabelImage] = useState(null);
@@ -41,10 +38,6 @@ const PracticePage = () => {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
-
-  const handleWindowSizeChange = () => {
-    setWidth(window.innerWidth);
-  };
 
   const validateSelection = () => {
     const hasSelection =
@@ -211,12 +204,6 @@ const PracticePage = () => {
     if (!status && !labelImage && !isLoading) {
       getImage();
     }
-
-    //Get window size
-    window.addEventListener("resize", handleWindowSizeChange);
-    return () => {
-      window.removeEventListener("resize", handleWindowSizeChange);
-    };
   }, []);
 
   return (
@@ -224,13 +211,8 @@ const PracticePage = () => {
       {({ Auth }) => {
         return (
           <div>
-            {width > 768 && <Sidebar />}
-            <div
-              style={{
-                paddingLeft: width > 768 ? "250px" : "0px",
-                paddingTop: "90px",
-              }}
-            >
+            <Sidebar />
+            <div className="content-with-sidebar">
               <h2>Labeling Practice</h2>
               <p>
                 Results will not be stored for practice. Test your skills and
@@ -238,7 +220,14 @@ const PracticePage = () => {
               </p>
 
               {error && (
-                <Container style={{ width: "50%", marginBottom: "10px" }}>
+                <Container
+                  className="mobile-padding-sm"
+                  style={{
+                    width: "100%",
+                    maxWidth: "600px",
+                    marginBottom: "10px",
+                  }}
+                >
                   <Alert
                     variant="danger"
                     dismissible
@@ -250,6 +239,7 @@ const PracticePage = () => {
                       variant="outline-danger"
                       size="sm"
                       onClick={getNext}
+                      className="btn-responsive"
                     >
                       Try Again
                     </Button>
@@ -258,7 +248,14 @@ const PracticePage = () => {
               )}
 
               {validationError && (
-                <Container style={{ width: "50%", marginBottom: "10px" }}>
+                <Container
+                  className="mobile-padding-sm"
+                  style={{
+                    width: "100%",
+                    maxWidth: "600px",
+                    marginBottom: "10px",
+                  }}
+                >
                   <Alert
                     variant="warning"
                     dismissible
@@ -274,35 +271,55 @@ const PracticePage = () => {
                 <LoadingSpinner />
               ) : labelImage ? (
                 <div
+                  className="flex-responsive"
                   style={{
                     display: "flex",
+                    flexDirection: "row",
                     position: "relative",
                     minHeight: "400px",
+                    width: "100%",
+                    maxWidth: "1200px",
+                    margin: "0 auto",
+                    padding: "10px",
                   }}
                 >
-                  <img
-                    src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
-                    alt="Labeling data"
-                    width="80%"
-                    height="auto"
-                    style={{
-                      border: "2px solid #C0C2C9",
-                      opacity: status ? "0.33" : "1.0",
-                    }}
-                    onError={() => {
-                      setError(
-                        "Failed to display image. The image may be corrupted."
-                      );
-                      setLabelImage(null);
-                    }}
-                  />
+                  <div
+                    style={{ flex: "1", minWidth: "0", marginBottom: "20px" }}
+                  >
+                    <img
+                      src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
+                      alt="Labeling data"
+                      className="img-responsive"
+                      style={{
+                        width: "100%",
+                        height: "auto",
+                        border: "2px solid #C0C2C9",
+                        opacity: status ? "0.33" : "1.0",
+                      }}
+                      onError={() => {
+                        setError(
+                          "Failed to display image. The image may be corrupted."
+                        );
+                        setLabelImage(null);
+                      }}
+                    />
+                  </div>
 
-                  <div>
+                  <div
+                    style={{
+                      flex: "0 0 auto",
+                      minWidth: "150px",
+                      padding: "0 10px",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
                     <Form.Group
-                      className="flex-row"
+                      className="flex-column"
                       controlId="formBasicCheckbox"
                       style={{
                         opacity: status ? "0.33" : "1.0",
+                        flex: "1",
                       }}
                     >
                       <Form.Check
@@ -311,12 +328,12 @@ const PracticePage = () => {
                         label="Brain"
                         checked={brain}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#00A5E0",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setBrain(e.target.checked);
@@ -329,12 +346,12 @@ const PracticePage = () => {
                         label="Muscle"
                         checked={muscle}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#EF9CDA",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setMuscle(e.target.checked);
@@ -347,12 +364,12 @@ const PracticePage = () => {
                         label="Eye"
                         checked={eye}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#89A1EF",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setEye(e.target.checked);
@@ -365,12 +382,12 @@ const PracticePage = () => {
                         label="Heart"
                         checked={heart}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#FECEF1",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setHeart(e.target.checked);
@@ -383,12 +400,12 @@ const PracticePage = () => {
                         label="Line Noise"
                         checked={linenoise}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#C2EABD",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setLinenoise(e.target.checked);
@@ -401,12 +418,12 @@ const PracticePage = () => {
                         label="Chan Noise"
                         checked={channoise}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#32CBFF",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setChannoise(e.target.checked);
@@ -419,12 +436,12 @@ const PracticePage = () => {
                         label="Other"
                         checked={other}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#DCF2B0",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setOther(e.target.checked);
@@ -437,12 +454,12 @@ const PracticePage = () => {
                         label="Unsure"
                         checked={unsure}
                         disabled={!!status}
+                        className="mb-2"
                         style={{
                           textAlign: "left",
                           paddingLeft: "40px",
                           borderRadius: "10px",
                           background: "#FFE5B4",
-                          margin: "10px",
                         }}
                         onChange={(e) => {
                           setUnsure(e.target.checked);
@@ -450,27 +467,34 @@ const PracticePage = () => {
                         }}
                       />
                     </Form.Group>
-                    <Button
-                      variant="info"
-                      type="button"
-                      onClick={submitResults}
-                      disabled={!!status}
-                      style={{
-                        position: "absolute",
-                        bottom: 0,
-                      }}
-                    >
-                      Submit
-                    </Button>
+                    <div className="mt-auto" style={{ marginTop: "20px" }}>
+                      <Button
+                        variant="info"
+                        type="button"
+                        onClick={submitResults}
+                        disabled={!!status}
+                        className="btn-responsive"
+                        style={{ width: "100%" }}
+                      >
+                        Submit
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : (
-                <Container style={{ paddingTop: "50px" }}>
+                <Container
+                  className="mobile-padding-sm"
+                  style={{ paddingTop: "50px" }}
+                >
                   <Alert variant="info">
                     No image to display. Please click "Try Again" or refresh the
                     page.
                   </Alert>
-                  <Button variant="primary" onClick={getNext}>
+                  <Button
+                    variant="primary"
+                    onClick={getNext}
+                    className="btn-responsive"
+                  >
                     Load Image
                   </Button>
                 </Container>
@@ -478,15 +502,25 @@ const PracticePage = () => {
 
               <br />
               {status === "success" && (
-                <Container style={{ width: "50%" }}>
+                <Container
+                  className="mobile-padding-sm"
+                  style={{ width: "100%", maxWidth: "600px" }}
+                >
                   <Alert variant="success">
                     <Row>
-                      <Col>
+                      <Col xs={12} md={8} className="mb-2 mb-md-0">
                         ✓ Labels Submitted! See how your labels compare with
                         others.
                       </Col>
                       <Col
-                        style={{ display: "flex", justifyContent: "flex-end" }}
+                        xs={12}
+                        md={4}
+                        style={{
+                          display: "flex",
+                          justifyContent: "flex-end",
+                          flexWrap: "wrap",
+                          gap: "10px",
+                        }}
                       >
                         <LabelModal
                           open={true}
@@ -498,7 +532,7 @@ const PracticePage = () => {
                         <Button
                           variant="primary"
                           onClick={getNext}
-                          style={{ marginLeft: "10px" }}
+                          className="btn-responsive"
                         >
                           Next
                         </Button>

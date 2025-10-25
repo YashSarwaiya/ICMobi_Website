@@ -22,7 +22,3 @@ eeglabel.bashrc
 backend/.env
 .env
 
-# Cache directory for images
-backend/cache/
-cache/
-*.cache
