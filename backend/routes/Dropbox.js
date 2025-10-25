@@ -4,7 +4,6 @@ const router = express.Router();
 const fs = require("fs");
 const db = require("../models");
 const path = require("path");
-const ImageCache = require("../utils/imageCache");
 require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const Component = db.component;
 const User = db.user;
@@ -12,18 +11,6 @@ const User = db.user;
 ///////////////////
 ///// DROPBOX /////
 ///////////////////
-
-// Initialize image cache (1 hour cache)
-const imageCache = new ImageCache(
-  path.join(__dirname, "../cache/images"),
-  3600000
-);
-
-// Clear old cache every hour
-setInterval(() => {
-  console.log("Clearing old cache entries...");
-  imageCache.clearOldCache();
-}, 3600000);
 
 //Instantiate Dropbox instance
 const dropboxV2Api = require("dropbox-v2-api");
@@ -84,7 +71,7 @@ getFilenamesContinue = (cursor) => {
       (err, result, response) => {
         //If error in getting continued folder
         if (err) {
-          reject(err);
+          reject(error);
         }
 
         let listContinue = {
@@ -423,8 +410,10 @@ router.get("/imagefile", async (req, res) => {
   }
 });
 
-//Getting the image for eeg labelling - OPTIMIZED WITH CACHING
-router.get("/imagedata", async (req, res) => {
+//Getting the image for eeg labelling
+router.get("/imagedata", (req, res) => {
+  //TO DO
+  //Determine which file to get
   const imagefile = req.query.imagefile;
 
   // Validate that imagefile is provided
@@ -433,68 +422,47 @@ router.get("/imagedata", async (req, res) => {
     return res.status(400).json({ error: "Missing imagefile parameter" });
   }
 
-  try {
-    // Check cache first
-    if (imageCache.isCached(imagefile)) {
-      console.log("✓ Serving from cache:", imagefile);
-      const cachedImage = imageCache.getCached(imagefile);
-
-      res.writeHead(200, {
-        "Content-Type": "image/jpeg",
-        "Cache-Control": "public, max-age=3600",
-        "X-Cache": "HIT",
-      });
-      return res.end(cachedImage);
-    }
-
-    console.log("✗ Cache miss, downloading from Dropbox:", imagefile);
-
-    // Build the Dropbox path
-    const file = folderpath.endsWith("/")
+  // Ensure no double slashes in path
+  const file = folderpath
+    ? folderpath.endsWith("/")
       ? `${folderpath}${imagefile}`
-      : `${folderpath}/${imagefile}`;
+      : `${folderpath}/${imagefile}`
+    : `/${imagefile}`;
 
-    // Download from Dropbox and collect chunks
-    const chunks = [];
+  console.log("Downloading file from Dropbox:", file);
+  console.log("folderpath:", folderpath);
+  console.log("imagefile:", imagefile);
 
-    await new Promise((resolve, reject) => {
-      dropbox(
-        {
-          resource: "files/download",
-          parameters: {
-            path: file,
-          },
-        },
-        (err, result, response) => {
-          if (err) {
-            console.log("Error downloading from Dropbox:", err);
-            reject(err);
-          }
+  //Download file from Dropbox
+  dropbox(
+    {
+      resource: "files/download",
+      parameters: {
+        path: file,
+      },
+    },
+    (err, result, response) => {
+      if (err) {
+        console.log("get image data err: ", err);
+        console.log("Failed path was:", file);
+        return;
+      }
+
+      fs.readFile(
+        path.join(__dirname, "..", "temp", "labelling-image.jpg"),
+        (err, data) => {
+          if (err) throw err;
+
+          res.writeHead(200, { "Content-Type": "image/jpeg" });
+          res.end(data);
         }
-      )
-        .on("data", (chunk) => chunks.push(chunk))
-        .on("end", () => resolve())
-        .on("error", (err) => reject(err));
-    });
-
-    // Combine chunks into buffer
-    const imageBuffer = Buffer.concat(chunks);
-
-    // Save to cache
-    imageCache.saveToCache(imagefile, imageBuffer);
-    console.log("✓ Saved to cache:", imagefile);
-
-    // Send response
-    res.writeHead(200, {
-      "Content-Type": "image/jpeg",
-      "Cache-Control": "public, max-age=3600",
-      "X-Cache": "MISS",
-    });
-    res.end(imageBuffer);
-  } catch (error) {
-    console.error("Error in imagedata route:", error);
-    res.status(500).json({ error: "Failed to retrieve image" });
-  }
+      );
+    }
+  ).pipe(
+    fs.createWriteStream(
+      path.join(__dirname, "..", "temp", "labelling-image.jpg")
+    )
+  );
 });
 
 // Getting the matlab file for eeg labelling
@@ -702,32 +670,6 @@ router.get("/filenames", async (req, res) => {
     );
   } else {
     res.status(500).json({ error: "Dropbox not authenticated." });
-  }
-});
-
-// Add cache stats endpoint for monitoring (admin only)
-router.get("/cache-stats", (req, res) => {
-  try {
-    const stats = imageCache.getStats();
-    res.json({
-      success: true,
-      cache: {
-        ...stats,
-        diskCacheSizeMB: (stats.diskCacheSize / (1024 * 1024)).toFixed(2),
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to get cache stats" });
-  }
-});
-
-// Add cache clear endpoint (admin only)
-router.post("/clear-cache", (req, res) => {
-  try {
-    imageCache.clearOldCache();
-    res.json({ success: true, message: "Cache cleared successfully" });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to clear cache" });
   }
 });
 

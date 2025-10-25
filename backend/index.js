@@ -1,7 +1,6 @@
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
-const compression = require("compression");
 const dbx = require("./routes/Dropbox.js");
 require("dotenv").config();
 
@@ -21,45 +20,11 @@ let corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Enable gzip compression for all responses
-app.use(
-  compression({
-    // Only compress responses larger than 1kb
-    threshold: 1024,
-    // Compression level (0-9, 6 is default)
-    level: 6,
-    // Filter function to decide what to compress
-    filter: (req, res) => {
-      // Don't compress if client doesn't support it
-      if (req.headers["x-no-compression"]) {
-        return false;
-      }
-      // Use compression filter to check if content should be compressed
-      return compression.filter(req, res);
-    },
-  })
-);
-
 // parse requests of content-type - application/json
 app.use(express.json());
 
 // parse requests of content-type - application/x-www-form-urlencoded
 app.use(express.urlencoded({ extended: true }));
-
-// Add cache control headers for static assets and images
-app.use((req, res, next) => {
-  // Cache images from dropbox endpoint for 1 hour
-  if (req.url.includes("/dropbox/imagedata")) {
-    res.set("Cache-Control", "public, max-age=3600");
-  }
-  // Cache static files for 1 day
-  else if (
-    req.url.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf)$/)
-  ) {
-    res.set("Cache-Control", "public, max-age=86400");
-  }
-  next();
-});
 
 app.use("/dropbox", dbx);
 

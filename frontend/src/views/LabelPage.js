@@ -11,27 +11,22 @@ import { CaretRightFill } from "react-bootstrap-icons";
 import LoadingSpinner from "../components/LoadingSpinner";
 import LabelModal from "../components/LabelModal";
 import { AuthContext, AuthConsumer } from "../helpers/AuthContext";
-import { useOptimizedImage } from "../hooks/useOptimizedImage";
 
 import Sidebar from "../components/Sidebar";
 
 const LabelPage = () => {
   const context = useContext(AuthContext);
 
-  // Use optimized image hook instead of manual state management
-  const {
-    labelImage,
-    labelFile,
-    isLoading,
-    error: imageError,
-    loadImage,
-    setLabelImage,
-    setLabelFile,
-    setError: setImageError,
-  } = useOptimizedImage();
-
+  //Loading variables
+  const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  //Width variables
   const [width, setWidth] = useState(window.innerWidth);
+
+  //Label image data
+  const [labelImage, setLabelImage] = useState(null);
+  const [labelFile, setLabelFile] = useState("");
 
   //Checkbox values
   const [brain, setBrain] = useState(false);
@@ -156,15 +151,22 @@ const LabelPage = () => {
     setStatus("");
     setError("");
     setValidationError("");
-    setImageError("");
-
-    // Clean up previous blob URL to prevent memory leaks
-    if (labelImage && labelImage.startsWith("blob:")) {
-      URL.revokeObjectURL(labelImage);
-    }
-
     setLabelImage(null);
     setLabelFile("");
+    getImage();
+  };
+
+  const getImage = async () => {
+    // Prevent multiple simultaneous requests
+    if (isLoading) {
+      console.log("Already loading, skipping request");
+      return;
+    }
+
+    //While getting image, loading is true
+    setIsLoading(true);
+    setError("");
+    setValidationError("");
 
     //Set all checkboxes to blank
     setBrain(false);
@@ -176,19 +178,81 @@ const LabelPage = () => {
     setOther(false);
     setUnsure(false);
 
-    // Load next image using optimized hook
     const email = localStorage.getItem("Email");
-    if (email && email !== "guest") {
-      loadImage(email);
+
+    if (!email || email === "guest") {
+      setError("You must be logged in to label components.");
+      setIsLoading(false);
+      return;
+    }
+
+    console.log("Getting image file for:", email);
+
+    try {
+      // Get image filename
+      const filenameResponse = await axios.get("/dropbox/imagefile", {
+        params: { email: email },
+        timeout: 30000,
+      });
+
+      console.log("Got filename:", filenameResponse.data);
+
+      if (!filenameResponse.data) {
+        throw new Error("No filename received from server");
+      }
+
+      const filename = filenameResponse.data;
+      setLabelFile(filename);
+
+      // Get image data
+      const imageResponse = await axios.get("/dropbox/imagedata", {
+        responseType: "arraybuffer",
+        params: { imagefile: filename },
+        timeout: 30000,
+      });
+
+      console.log("Got image data, size:", imageResponse.data.byteLength);
+
+      if (!imageResponse.data || imageResponse.data.byteLength === 0) {
+        throw new Error("Empty image data received");
+      }
+
+      // Convert to base64
+      const base64 = btoa(
+        new Uint8Array(imageResponse.data).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          ""
+        )
+      );
+
+      setLabelImage(base64);
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error loading image:", error);
+
+      let errorMsg = "Error loading image. ";
+
+      if (error.code === "ECONNABORTED") {
+        errorMsg += "Request timed out. Please check your internet connection.";
+      } else if (error.response) {
+        errorMsg +=
+          error.response.data?.error ||
+          error.response.statusText ||
+          "Server error.";
+      } else if (error.request) {
+        errorMsg += "No response from server. Please check your connection.";
+      } else {
+        errorMsg += error.message || "Unknown error occurred.";
+      }
+
+      setError(errorMsg);
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
     if (!status && !labelImage && !isLoading) {
-      const email = localStorage.getItem("Email");
-      if (email && email !== "guest") {
-        loadImage(email);
-      }
+      getImage();
     }
 
     //Get window size
@@ -200,18 +264,11 @@ const LabelPage = () => {
 
   const renderLabelingInterface = () => (
     <>
-      {(error || imageError) && (
+      {error && (
         <Container style={{ width: "50%", marginBottom: "10px" }}>
-          <Alert
-            variant="danger"
-            dismissible
-            onClose={() => {
-              setError("");
-              setImageError("");
-            }}
-          >
+          <Alert variant="danger" dismissible onClose={() => setError("")}>
             <Alert.Heading>Error</Alert.Heading>
-            <p>{error || imageError}</p>
+            <p>{error}</p>
             <Button variant="outline-danger" size="sm" onClick={getNext}>
               Try Again
             </Button>
@@ -243,7 +300,7 @@ const LabelPage = () => {
           }}
         >
           <img
-            src={labelImage} // Now using blob URL instead of base64!
+            src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
             alt="Labeling data"
             width="80%"
             height="auto"
@@ -252,9 +309,7 @@ const LabelPage = () => {
               opacity: status ? "0.33" : "1.0",
             }}
             onError={() => {
-              setImageError(
-                "Failed to display image. The image may be corrupted."
-              );
+              setError("Failed to display image. The image may be corrupted.");
               setLabelImage(null);
             }}
           />
