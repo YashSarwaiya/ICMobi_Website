@@ -12,11 +12,87 @@ const User = db.user;
 ///// DROPBOX /////
 ///////////////////
 
-//Instantiate Dropbox instance
 const dropboxV2Api = require("dropbox-v2-api");
 const { FULLY_LABELED_THRESHOLD } = require("../constants/constants");
 let dropbox = null;
-const folderpath = "/IC_images"; // Change this to match your Dropbox folder name
+const folderpath = "/IC_images";
+
+// ========== CACHING MECHANISM ==========
+let cachedFileList = null;
+let cacheTimestamp = null;
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+// Function to check if cache is valid
+const isCacheValid = () => {
+  if (!cachedFileList || !cacheTimestamp) return false;
+  return Date.now() - cacheTimestamp < CACHE_DURATION;
+};
+
+// Function to get file list (cached or fresh)
+const getFileList = async () => {
+  if (isCacheValid()) {
+    console.log(
+      "✓ Using cached file list (" + cachedFileList.length + " files)"
+    );
+    return cachedFileList;
+  }
+
+  console.log("✗ Cache expired or empty, fetching from Dropbox...");
+
+  return new Promise((resolve, reject) => {
+    dropbox(
+      {
+        resource: "files/list_folder",
+        parameters: { path: folderpath },
+      },
+      async (err, result, response) => {
+        if (err) {
+          console.log("Error fetching file list:", err);
+          return reject(err);
+        }
+
+        let dropboxlist = result.entries;
+        let has_more = result.has_more;
+        let cursor = result.cursor;
+
+        // Continue getting filenames until all retrieved
+        while (has_more) {
+          const listContinueObject = await getFilenamesContinue(cursor);
+          dropboxlist = dropboxlist.concat(listContinueObject.entries);
+          has_more = listContinueObject.has_more;
+          cursor = listContinueObject.cursor;
+        }
+
+        // Filter out only files (not folders)
+        dropboxlist = dropboxlist.filter((entry) => entry[".tag"] === "file");
+
+        // Extract file names
+        dropboxlist = dropboxlist.map((file) => file["name"]);
+
+        // Extract only .jpg images
+        dropboxlist = dropboxlist.filter((file) => {
+          const extIndex = file.lastIndexOf(".");
+          return file.substring(extIndex) === ".jpg";
+        });
+
+        // Update cache
+        cachedFileList = dropboxlist;
+        cacheTimestamp = Date.now();
+
+        console.log("✓ Cached " + dropboxlist.length + " files from Dropbox");
+        resolve(dropboxlist);
+      }
+    );
+  });
+};
+
+// Function to invalidate cache (call this when you know files changed)
+const invalidateCache = () => {
+  cachedFileList = null;
+  cacheTimestamp = null;
+  console.log("Cache invalidated");
+};
+// ========================================
 
 //Get new short live token every 3 hours
 generateDBXAuth = () => {
@@ -47,31 +123,25 @@ generateDBXAuth = () => {
       console.log(err);
     });
 
-  //Set timeout for next authentication in 3 hours
   setTimeout(generateDBXAuth, 10800000);
 };
 
-//Initial authentication for dropbox
 generateDBXAuth();
 
 //////////////////////////
 ///// HELPER METHODS /////
 //////////////////////////
 
-// Continues to get the list of files as limit for one read is 500
 getFilenamesContinue = (cursor) => {
   return new Promise((resolve, reject) => {
     dropbox(
       {
         resource: "files/list_folder/continue",
-        parameters: {
-          cursor: cursor,
-        },
+        parameters: { cursor: cursor },
       },
       (err, result, response) => {
-        //If error in getting continued folder
         if (err) {
-          reject(error);
+          reject(err);
         }
 
         let listContinue = {
@@ -86,9 +156,7 @@ getFilenamesContinue = (cursor) => {
   });
 };
 
-// Select appropriate experiment based on weights and return filtered list of components
 filterByExperiment = (complist, lastExp = false) => {
-  // Grab weights from file if possible, otherwise return list unchanged
   let data = {};
   try {
     data = fs.readFileSync("./temp/experiment-weights.json", "utf8");
@@ -100,8 +168,6 @@ filterByExperiment = (complist, lastExp = false) => {
   const weighter = JSON.parse(data);
   let exp = "";
 
-  // If drawing from previous experiment, just set using stored value
-  // Else calculate the value from weights given
   if (lastExp) {
     exp = weighter.lastExp;
   } else {
@@ -109,12 +175,10 @@ filterByExperiment = (complist, lastExp = false) => {
     const weights = weighter.weights;
     let currWeight = 0.0;
 
-    // Get the experiment based from weights
     for (const expNo in weights) {
       if (weights.hasOwnProperty(expNo)) {
         currWeight = currWeight + parseFloat(weights[expNo]);
 
-        // Break if currWeight has exceeded drawnWeight
         if (currWeight > drawnWeight) {
           exp = String(expNo);
           break;
@@ -122,13 +186,11 @@ filterByExperiment = (complist, lastExp = false) => {
       }
     }
 
-    // If somehow experiment not set, just use previous
     if (exp.length === 0) {
       exp = weighter.lastExp;
     }
   }
 
-  // Save current experiment number for reference later
   weighter.lastExp = exp;
   const jsonWeighter = JSON.stringify(weighter);
 
@@ -140,7 +202,6 @@ filterByExperiment = (complist, lastExp = false) => {
     }
   }
 
-  // Filter out all entries that are not part of the experiment
   return complist.filter((entry) => {
     if (typeof entry === "string") {
       return entry.slice(0, 1) === exp;
@@ -156,20 +217,16 @@ filterByExperiment = (complist, lastExp = false) => {
 ///// ROUTER PATHS /////
 ////////////////////////
 
-//Getting the image file name for eeg labelling
+// OPTIMIZED: Get image file name for labeling
 router.get("/imagefile", async (req, res) => {
   if (!req.query.email || req.query.email === "guest") {
     try {
       let files = [];
-
-      //Grab list of completed components
       const data = await Component.find({});
 
-      //No error and assign data
       if (data && data.length > 0) {
         files = data;
       } else {
-        // Fallback to hardcoded list if no components in DB
         files = [
           { name: "1001001.jpg" },
           { name: "1001002.jpg" },
@@ -184,7 +241,6 @@ router.get("/imagefile", async (req, res) => {
         ];
       }
 
-      //Get a completed component
       const randomFile = files[Math.floor(Math.random() * files.length)];
       const filename = randomFile.name || randomFile;
 
@@ -198,231 +254,112 @@ router.get("/imagefile", async (req, res) => {
     }
   }
 
-  ///////////////////////////////////
-  //Get list of images from dropbox//
-  ///////////////////////////////////
-
   console.log("Getting imagefile for email:", req.query.email);
-  console.log("Dropbox folderpath:", folderpath);
 
-  let dropboxlist;
-  if (dropbox) {
-    dropbox(
-      {
-        resource: "files/list_folder",
-        parameters: {
-          path: folderpath,
-        },
-      },
-      async (err, result, response) => {
-        //If error returned
-        if (err) {
-          console.log("get imagefile err: ", err);
-          return res
-            .status(500)
-            .json({ error: "Failed to list Dropbox files" });
-        }
+  if (!dropbox) {
+    return res.status(500).json({ error: "Dropbox not authenticated." });
+  }
 
-        console.log("Dropbox returned", result.entries.length, "files");
+  try {
+    // ========== USE CACHED FILE LIST ==========
+    let dropboxlist = await getFileList();
+    console.log("Working with " + dropboxlist.length + " files");
 
-        //Initialize list with first 500 filenames
-        dropboxlist = result.entries;
-        let has_more = result.has_more;
-        let cursor = result.cursor;
+    // Get MongoDB components
+    let mongodblist = await Component.find({});
+    console.log("MongoDB components found:", mongodblist.length);
 
-        //Continue getting filenames until all filenames have been retrieved
-        while (has_more) {
-          const listContinueObject = await getFilenamesContinue(cursor);
-          dropboxlist = dropboxlist.concat(listContinueObject.entries);
-          has_more = listContinueObject.has_more;
-          cursor = listContinueObject.cursor;
-        }
+    // Get user's completed components
+    const user = await User.findOne({ email: req.query.email });
+    let usercomplist = [];
+    if (user) {
+      usercomplist = user.components || [];
+    }
+    console.log("User completed components:", usercomplist.length);
 
-        //Filter out filenames (from folders)
-        dropboxlist = dropboxlist.filter((entry) => {
-          return entry[".tag"] === "file";
-        });
+    // Filter out components already labeled by user
+    dropboxlist = dropboxlist.filter((file) => !usercomplist.includes(file));
 
-        //Extract out file name (from file object)
-        dropboxlist = dropboxlist.map((file) => {
-          return file["name"];
-        });
-
-        //Extract only images (jpg extensions)
-        dropboxlist = dropboxlist.filter((file) => {
-          const extIndex = file.lastIndexOf(".");
-          return file.substring(extIndex) == ".jpg";
-        });
-
-        console.log(
-          "Filtered dropboxlist to .jpg files:",
-          dropboxlist.length,
-          "files"
-        );
-        console.log("First file:", dropboxlist[0]);
-
-        ///////////////////////////////////////////
-        ///Get list of components within mongodb///
-        ///////////////////////////////////////////
-
-        // Convert to async/await to fix Mongoose 6 callback issues
-        try {
-          let mongodblist = await Component.find({});
-          console.log(
-            "MongoDB components found:",
-            mongodblist ? mongodblist.length : 0
-          );
-
-          //////////////////////////////////////////
-          //Get list of completed labels from user//
-          //////////////////////////////////////////
-
-          const user = await User.findOne({ email: req.query.email });
-          let usercomplist = [];
-          if (user) {
-            usercomplist = user.components || [];
-          }
-          console.log("User completed components:", usercomplist.length);
-
-          //Algorithm to determine which image to send back
-
-          //////////////////////////////
-          /////FILTERING LISTS DOWN/////
-          //////////////////////////////
-
-          //Get rid of components already labelled by user from dropbox list
-          dropboxlist = dropboxlist.filter((file) => {
-            return !usercomplist.includes(file);
-          });
-
-          //Get rid of components already labelled by user from mongodb list
-          mongodblist = mongodblist.filter((component) => {
-            return !usercomplist.includes(component.name);
-          });
-
-          //Get rid of components already at cap
-          const cap = FULLY_LABELED_THRESHOLD;
-          mongodblist = mongodblist.filter((component) => {
-            return component.labels.length < cap;
-          });
-
-          ///////////////////////////
-          /////SELECT EXPERIMENT/////
-          ///////////////////////////
-          console.log(
-            "Before filterByExperiment - dropboxlist length:",
-            dropboxlist.length
-          );
-          // TEMPORARILY DISABLED: filterByExperiment for testing
-          // dropboxlist = filterByExperiment(dropboxlist);
-          // mongodblist = filterByExperiment(mongodblist, lastExp=true);
-          console.log(
-            "After filterByExperiment - dropboxlist length:",
-            dropboxlist.length
-          );
-          console.log("After filterByExperiment - dropboxlist:", dropboxlist);
-
-          ////////////////////////
-          /////SELECTING FILE/////
-          ////////////////////////
-
-          //File to return
-          let file = "";
-
-          //If dropboxlist is empty, user has labelled all known components
-          if (dropboxlist.length === 0) {
-            //Select from previous labelled components
-            file =
-              usercomplist[Math.floor(Math.random() * usercomplist.length)];
-            console.log("Final selected file to send:", file);
-            res.send(file);
-            return;
-          }
-
-          //If mongodblist is empty, user has labelled all labelled components
-          if (mongodblist.length === 0) {
-            //Select from dropboxlist, start a new component
-            file = dropboxlist[Math.floor(Math.random() * dropboxlist.length)];
-            console.log("Final selected file to send:", file);
-            res.send(file);
-            return;
-          }
-
-          //Weighted selection
-          //Components with more labels have better chance of being selected
-          let totalWeight = 0;
-          for (let i = 0; i < mongodblist.length; i++) {
-            totalWeight += mongodblist[i].labels.length;
-          }
-
-          //Keep adding until component exceeds selection
-          const selection = Math.floor(Math.random() * totalWeight);
-          let trackWeight = 0;
-          for (let i = 0; i < mongodblist.length; i++) {
-            trackWeight += mongodblist[i].labels.length;
-
-            if (trackWeight >= selection) {
-              file = mongodblist[i].name;
-              break;
-            }
-          }
-
-          //If somehow file is still not filled just select from components below
-          if (file.length === 0) {
-            const files = [
-              "1001001.jpg",
-              "1001002.jpg",
-              "1001003.jpg",
-              "1001004.jpg",
-              "1001005.jpg",
-              "1001006.jpg",
-              "1001007.jpg",
-              "1001008.jpg",
-              "1001009.jpg",
-              "1001010.jpg",
-              "1001011.jpg",
-              "1001012.jpg",
-              "1001013.jpg",
-              "1001019.jpg",
-              "1001034.jpg",
-              "1001038.jpg",
-              "1001042.jpg",
-              "1001061.jpg",
-              "1001065.jpg",
-              "1001077.jpg",
-              "1001088.jpg",
-            ];
-
-            file = files[Math.floor(Math.random() * files.length)];
-            console.log("Using fallback file:", file);
-          }
-
-          console.log("Final selected file to send:", file);
-          res.send(file);
-        } catch (error) {
-          console.log("Error in imagefile route:", error);
-          res.status(500).json({ error: "Failed to get image file" });
-        }
-      }
+    mongodblist = mongodblist.filter(
+      (component) => !usercomplist.includes(component.name)
     );
-  } else {
-    res.status(500).json({ error: "Dropbox not authenticated." });
+
+    // Filter out components at capacity
+    const cap = FULLY_LABELED_THRESHOLD;
+    mongodblist = mongodblist.filter(
+      (component) => component.labels.length < cap
+    );
+
+    // Experiment filtering (optional)
+    // dropboxlist = filterByExperiment(dropboxlist);
+    // mongodblist = filterByExperiment(mongodblist, true);
+
+    // Select file
+    let file = "";
+
+    if (dropboxlist.length === 0) {
+      file = usercomplist[Math.floor(Math.random() * usercomplist.length)];
+      console.log("Selected from user history:", file);
+      return res.send(file);
+    }
+
+    if (mongodblist.length === 0) {
+      file = dropboxlist[Math.floor(Math.random() * dropboxlist.length)];
+      console.log("Selected new component:", file);
+      return res.send(file);
+    }
+
+    // Weighted selection
+    let totalWeight = 0;
+    for (let i = 0; i < mongodblist.length; i++) {
+      totalWeight += mongodblist[i].labels.length;
+    }
+
+    const selection = Math.floor(Math.random() * totalWeight);
+    let trackWeight = 0;
+    for (let i = 0; i < mongodblist.length; i++) {
+      trackWeight += mongodblist[i].labels.length;
+
+      if (trackWeight >= selection) {
+        file = mongodblist[i].name;
+        break;
+      }
+    }
+
+    if (file.length === 0) {
+      const fallbackFiles = [
+        "1001001.jpg",
+        "1001002.jpg",
+        "1001003.jpg",
+        "1001004.jpg",
+        "1001005.jpg",
+        "1001006.jpg",
+        "1001007.jpg",
+        "1001008.jpg",
+        "1001009.jpg",
+        "1001010.jpg",
+      ];
+      file = fallbackFiles[Math.floor(Math.random() * fallbackFiles.length)];
+      console.log("Using fallback file:", file);
+    }
+
+    console.log("Final selected file:", file);
+    res.send(file);
+  } catch (error) {
+    console.log("Error in imagefile route:", error);
+    res.status(500).json({ error: "Failed to get image file" });
   }
 });
 
-//Getting the image for eeg labelling
+// Image data endpoint (unchanged)
 router.get("/imagedata", (req, res) => {
-  //TO DO
-  //Determine which file to get
   const imagefile = req.query.imagefile;
 
-  // Validate that imagefile is provided
   if (!imagefile) {
     console.log("Error: No imagefile provided in query");
     return res.status(400).json({ error: "Missing imagefile parameter" });
   }
 
-  // Ensure no double slashes in path
   const file = folderpath
     ? folderpath.endsWith("/")
       ? `${folderpath}${imagefile}`
@@ -430,65 +367,47 @@ router.get("/imagedata", (req, res) => {
     : `/${imagefile}`;
 
   console.log("Downloading file from Dropbox:", file);
-  console.log("folderpath:", folderpath);
-  console.log("imagefile:", imagefile);
 
-  //Download file from Dropbox
+  res.set({
+    "Cache-Control": "public, max-age=31536000",
+    "Content-Type": "image/jpeg",
+    "Access-Control-Allow-Origin": "*",
+  });
+
   dropbox(
     {
       resource: "files/download",
-      parameters: {
-        path: file,
-      },
+      parameters: { path: file },
     },
     (err, result, response) => {
       if (err) {
         console.log("get image data err: ", err);
         console.log("Failed path was:", file);
-        return;
+        return res.status(500).json({ error: "Failed to download image" });
       }
-
-      fs.readFile(
-        path.join(__dirname, "..", "temp", "labelling-image.jpg"),
-        (err, data) => {
-          if (err) throw err;
-
-          res.writeHead(200, { "Content-Type": "image/jpeg" });
-          res.end(data);
-        }
-      );
     }
-  ).pipe(
-    fs.createWriteStream(
-      path.join(__dirname, "..", "temp", "labelling-image.jpg")
-    )
-  );
+  ).pipe(res);
 });
 
-// Getting the matlab file for eeg labelling
 router.get("/mat", (req, res) => {
   res.send("Sending .mat file");
 });
 
-// Submitting weights to be calculated
 router.post("/weights", (req, res) => {
   const weights = req.body;
   let currWeight = 0.0;
 
-  //Add all weights together
   for (const expNo in weights) {
     if (weights.hasOwnProperty(expNo)) {
       currWeight = currWeight + weights[expNo];
     }
   }
 
-  //Check if weight is valid with margin of error
   if (currWeight > 1.0001 || currWeight < 0.9999) {
     res.send("Invalid weights were submitted");
     return;
   }
 
-  //Read from file and override with new weights
   fs.readFile("./temp/experiment-weights.json", "utf8", (err, data) => {
     if (err) {
       console.log(err);
@@ -513,7 +432,7 @@ router.post("/weights", (req, res) => {
   });
 });
 
-// Getting the statistics to display for the data page
+// Statistics endpoint - also uses cache
 router.get("/statistics", async (req, res) => {
   let weighter;
   try {
@@ -522,155 +441,96 @@ router.get("/statistics", async (req, res) => {
     console.log(err);
   }
 
-  if (dropbox) {
-    dropbox(
-      {
-        resource: "files/list_folder",
-        parameters: {
-          path: folderpath,
-        },
-      },
-      async (err, result, response) => {
-        //If error returned
-        if (err) {
-          return console.log("err: ", err);
-        }
+  if (!dropbox) {
+    return res.status(500).json({ error: "Dropbox not authenticated." });
+  }
 
-        //Initialize list with first 500 filenames
-        let filelist = result.entries;
-        let has_more = result.has_more;
-        let cursor = result.cursor;
+  try {
+    // Use cached file list
+    let filelist = await getFileList();
 
-        while (has_more) {
-          const listContinueObject = await getFilenamesContinue(cursor);
-          filelist = filelist.concat(listContinueObject.entries);
-          has_more = listContinueObject.has_more;
-          cursor = listContinueObject.cursor;
-        }
-
-        //Filter out filenames
-        filelist = filelist.filter((entry) => {
-          return entry[".tag"] === "file";
-        });
-
-        //Extract out file name
-        filelist = filelist.map((file) => {
-          return file["name"];
-        });
-
-        let mongodblist = [];
-        Component.find({}, (err, data) => {
-          if (err) {
-            console.log(err);
-            res.status(500).json({ error: "MongoDB not responding" });
-            return;
-          }
-
-          //No error and assign data
-          if (data) {
-            mongodblist = data;
-          }
-
-          //Assemble statistics
-          let stats = {};
-
-          //Count the total number of label images
-          filelist.forEach((element) => {
-            const exp = element.slice(0, 1);
-            if (exp in stats) {
-              stats[exp].total = stats[exp].total + 1;
-            } else {
-              stats[exp] = {
-                total: 0,
-                completed: 0,
-                weight: 0,
-              };
-            }
-          });
-
-          //Count the total number of completed labels
-          mongodblist.forEach((element) => {
-            const exp = element.name.slice(0, 1);
-            if (exp in stats) {
-              stats[exp].completed = stats[exp].completed + 1;
-            } else {
-              stats[exp] = {
-                total: 0,
-                completed: 0,
-                weight: 0,
-              };
-            }
-          });
-
-          //Get the associated weights
-          weighter = JSON.parse(weighter);
-          let weights = weighter.weights;
-          stats["lastExp"] = weighter.lastExp;
-          for (exp in weights) {
-            if (exp in stats) {
-              stats[exp].weight = weights[exp];
-            } else {
-              stats[exp] = {
-                total: 0,
-                completed: 0,
-                weight: weights[exp],
-              };
-            }
-          }
-
-          res.send(stats);
-        });
+    let mongodblist = [];
+    Component.find({}, (err, data) => {
+      if (err) {
+        console.log(err);
+        res.status(500).json({ error: "MongoDB not responding" });
+        return;
       }
-    );
-  } else {
-    res.status(500).json({ error: "Dropbox not authenticated." });
+
+      if (data) {
+        mongodblist = data;
+      }
+
+      let stats = {};
+
+      filelist.forEach((element) => {
+        const exp = element.slice(0, 1);
+        if (exp in stats) {
+          stats[exp].total = stats[exp].total + 1;
+        } else {
+          stats[exp] = {
+            total: 1,
+            completed: 0,
+            weight: 0,
+          };
+        }
+      });
+
+      mongodblist.forEach((element) => {
+        const exp = element.name.slice(0, 1);
+        if (exp in stats) {
+          stats[exp].completed = stats[exp].completed + 1;
+        } else {
+          stats[exp] = {
+            total: 0,
+            completed: 1,
+            weight: 0,
+          };
+        }
+      });
+
+      weighter = JSON.parse(weighter);
+      let weights = weighter.weights;
+      stats["lastExp"] = weighter.lastExp;
+      for (exp in weights) {
+        if (exp in stats) {
+          stats[exp].weight = weights[exp];
+        } else {
+          stats[exp] = {
+            total: 0,
+            completed: 0,
+            weight: weights[exp],
+          };
+        }
+      }
+
+      res.send(stats);
+    });
+  } catch (error) {
+    console.log("Error in statistics route:", error);
+    res.status(500).json({ error: "Failed to get statistics" });
   }
 });
 
-// Getting the filenames from dropbox
+// Filenames endpoint - also uses cache
 router.get("/filenames", async (req, res) => {
-  if (dropbox) {
-    dropbox(
-      {
-        resource: "files/list_folder",
-        parameters: {
-          path: folderpath,
-        },
-      },
-      async (err, result, response) => {
-        //If error returned
-        if (err) {
-          return console.log("err: ", err);
-        }
-
-        //Initialize list with first 500 filenames
-        let filelist = result.entries;
-        let has_more = result.has_more;
-        let cursor = result.cursor;
-
-        while (has_more) {
-          const listContinueObject = await getFilenamesContinue(cursor);
-          filelist = filelist.concat(listContinueObject.entries);
-          has_more = listContinueObject.has_more;
-          cursor = listContinueObject.cursor;
-        }
-
-        //Filter out filenames
-        filelist = filelist.filter((entry) => {
-          return entry[".tag"] === "file";
-        });
-
-        //Extract out file name
-        filelist = filelist.map((file) => {
-          return file["name"];
-        });
-
-        res.send(filelist);
-      }
-    );
-  } else {
-    res.status(500).json({ error: "Dropbox not authenticated." });
+  if (!dropbox) {
+    return res.status(500).json({ error: "Dropbox not authenticated." });
   }
+
+  try {
+    const filelist = await getFileList();
+    res.send(filelist);
+  } catch (error) {
+    console.log("Error in filenames route:", error);
+    res.status(500).json({ error: "Failed to get filenames" });
+  }
+});
+
+// Optional: Manual cache refresh endpoint (admin only)
+router.post("/refresh-cache", (req, res) => {
+  invalidateCache();
+  res.send({ message: "Cache invalidated. Next request will refresh." });
 });
 
 module.exports = router;

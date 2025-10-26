@@ -40,6 +40,15 @@ const LabelPage = () => {
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
 
+  // Cleanup blob URLs when component unmounts or image changes
+  useEffect(() => {
+    return () => {
+      if (labelImage && labelImage.startsWith("blob:")) {
+        URL.revokeObjectURL(labelImage);
+      }
+    };
+  }, [labelImage]);
+
   const validateSelection = () => {
     const hasSelection =
       brain ||
@@ -144,6 +153,12 @@ const LabelPage = () => {
     setStatus("");
     setError("");
     setValidationError("");
+
+    // Revoke old blob URL before getting new image
+    if (labelImage && labelImage.startsWith("blob:")) {
+      URL.revokeObjectURL(labelImage);
+    }
+
     setLabelImage(null);
     setLabelFile("");
     getImage();
@@ -197,28 +212,45 @@ const LabelPage = () => {
       const filename = filenameResponse.data;
       setLabelFile(filename);
 
-      // Get image data
+      // Check sessionStorage cache first
+      const cachedUrl = sessionStorage.getItem(`img_${filename}`);
+      if (cachedUrl) {
+        console.log("✓ Using cached image URL");
+        setLabelImage(cachedUrl);
+        setIsLoading(false);
+        return;
+      }
+
+      // Get image data as BLOB (much faster than base64)
+      console.log("✗ Fetching image from server:", filename);
       const imageResponse = await axios.get("/dropbox/imagedata", {
-        responseType: "arraybuffer",
+        responseType: "blob",
         params: { imagefile: filename },
         timeout: 30000,
       });
 
-      console.log("Got image data, size:", imageResponse.data.byteLength);
+      console.log("Got image data, size:", imageResponse.data.size, "bytes");
 
-      if (!imageResponse.data || imageResponse.data.byteLength === 0) {
+      if (!imageResponse.data || imageResponse.data.size === 0) {
         throw new Error("Empty image data received");
       }
 
-      // Convert to base64
-      const base64 = btoa(
-        new Uint8Array(imageResponse.data).reduce(
-          (data, byte) => data + String.fromCharCode(byte),
-          ""
-        )
-      );
+      // Create object URL from blob
+      const imageUrl = URL.createObjectURL(imageResponse.data);
 
-      setLabelImage(base64);
+      // Cache the URL in sessionStorage
+      try {
+        sessionStorage.setItem(`img_${filename}`, imageUrl);
+      } catch (e) {
+        console.warn("SessionStorage full, clearing cache");
+        const keys = Object.keys(sessionStorage);
+        keys
+          .filter((k) => k.startsWith("img_"))
+          .slice(0, 10)
+          .forEach((k) => sessionStorage.removeItem(k));
+      }
+
+      setLabelImage(imageUrl);
       setIsLoading(false);
     } catch (error) {
       console.error("Error loading image:", error);
@@ -291,236 +323,478 @@ const LabelPage = () => {
         <LoadingSpinner />
       ) : labelImage ? (
         <div
-          className="flex-responsive"
           style={{
-            display: "flex",
-            flexDirection: "row",
-            position: "relative",
-            minHeight: "400px",
             width: "100%",
             maxWidth: "1200px",
             margin: "0 auto",
             padding: "10px",
           }}
         >
-          <div style={{ flex: "1", minWidth: "0", marginBottom: "20px" }}>
-            <img
-              src={`data:image/jpeg;charset=utf-8;base64,${labelImage}`}
-              alt="Labeling data"
-              className="img-responsive"
-              style={{
-                width: "100%",
-                height: "auto",
-                border: "2px solid #C0C2C9",
-                opacity: status ? "0.33" : "1.0",
-              }}
-              onError={() => {
-                setError(
-                  "Failed to display image. The image may be corrupted."
-                );
-                setLabelImage(null);
-              }}
-            />
-          </div>
-
+          {/* DESKTOP: Side by side */}
           <div
+            className="hide-mobile"
             style={{
-              flex: "0 0 auto",
-              minWidth: "150px",
-              padding: "0 10px",
               display: "flex",
-              flexDirection: "column",
+              flexDirection: "row",
+              gap: "20px",
             }}
           >
-            <Form.Group
-              className="flex-column"
-              controlId="formBasicCheckbox"
+            {/* Image on left */}
+            <div style={{ flex: "1", minWidth: "0" }}>
+              <img
+                src={labelImage}
+                alt="Labeling data"
+                className="img-responsive"
+                style={{
+                  width: "100%",
+                  height: "auto",
+                  border: "2px solid #C0C2C9",
+                  opacity: status ? "0.33" : "1.0",
+                }}
+                onError={() => {
+                  setError(
+                    "Failed to display image. The image may be corrupted."
+                  );
+                  setLabelImage(null);
+                }}
+              />
+            </div>
+
+            {/* Options on right */}
+            <div
               style={{
-                opacity: status ? "0.33" : "1.0",
-                flex: "1",
+                flex: "0 0 auto",
+                minWidth: "180px",
+                maxWidth: "200px",
+                display: "flex",
+                flexDirection: "column",
               }}
             >
-              <Form.Check
-                id="brain"
-                type="checkbox"
-                label="Brain"
-                checked={brain}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
+              <Form.Group
+                className="flex-column"
+                controlId="formBasicCheckbox"
                 style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#00A5E0",
+                  opacity: status ? "0.33" : "1.0",
+                  flex: "1",
                 }}
-                onChange={(e) => {
-                  setBrain(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="muscle"
-                type="checkbox"
-                label="Muscle"
-                checked={muscle}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#EF9CDA",
-                }}
-                onChange={(e) => {
-                  setMuscle(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="eye"
-                type="checkbox"
-                label="Eye"
-                checked={eye}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#89A1EF",
-                }}
-                onChange={(e) => {
-                  setEye(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="heart"
-                type="checkbox"
-                label="Heart"
-                checked={heart}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#FECEF1",
-                }}
-                onChange={(e) => {
-                  setHeart(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="linenoise"
-                type="checkbox"
-                label="Line Noise"
-                checked={linenoise}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#C2EABD",
-                }}
-                onChange={(e) => {
-                  setLinenoise(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="channoise"
-                type="checkbox"
-                label="Chan Noise"
-                checked={channoise}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#32CBFF",
-                }}
-                onChange={(e) => {
-                  setChannoise(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="other"
-                type="checkbox"
-                label="Other"
-                checked={other}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#DCF2B0",
-                }}
-                onChange={(e) => {
-                  setOther(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-              <Form.Check
-                id="unsure"
-                type="checkbox"
-                label="Unsure"
-                checked={unsure}
-                disabled={!!status || isSubmitting}
-                className="mb-2"
-                style={{
-                  textAlign: "left",
-                  paddingLeft: "40px",
-                  borderRadius: "10px",
-                  background: "#FFE5B4",
-                }}
-                onChange={(e) => {
-                  setUnsure(e.target.checked);
-                  setValidationError("");
-                }}
-              />
-            </Form.Group>
+              >
+                <Form.Check
+                  id="brain"
+                  type="checkbox"
+                  label="Brain"
+                  checked={brain}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#00A5E0",
+                  }}
+                  onChange={(e) => {
+                    setBrain(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="muscle"
+                  type="checkbox"
+                  label="Muscle"
+                  checked={muscle}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#EF9CDA",
+                  }}
+                  onChange={(e) => {
+                    setMuscle(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="eye"
+                  type="checkbox"
+                  label="Eye"
+                  checked={eye}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#89A1EF",
+                  }}
+                  onChange={(e) => {
+                    setEye(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="heart"
+                  type="checkbox"
+                  label="Heart"
+                  checked={heart}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#FECEF1",
+                  }}
+                  onChange={(e) => {
+                    setHeart(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="linenoise"
+                  type="checkbox"
+                  label="Line Noise"
+                  checked={linenoise}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#C2EABD",
+                  }}
+                  onChange={(e) => {
+                    setLinenoise(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="channoise"
+                  type="checkbox"
+                  label="Chan Noise"
+                  checked={channoise}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#32CBFF",
+                  }}
+                  onChange={(e) => {
+                    setChannoise(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="other"
+                  type="checkbox"
+                  label="Other"
+                  checked={other}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#DCF2B0",
+                  }}
+                  onChange={(e) => {
+                    setOther(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+                <Form.Check
+                  id="unsure"
+                  type="checkbox"
+                  label="Unsure"
+                  checked={unsure}
+                  disabled={!!status || isSubmitting}
+                  className="mb-2"
+                  style={{
+                    textAlign: "left",
+                    paddingLeft: "40px",
+                    borderRadius: "10px",
+                    background: "#FFE5B4",
+                  }}
+                  onChange={(e) => {
+                    setUnsure(e.target.checked);
+                    setValidationError("");
+                  }}
+                />
+              </Form.Group>
 
-            <div className="mt-auto" style={{ marginTop: "20px" }}>
-              {!status && (
-                <Button
-                  variant="secondary"
-                  type="button"
-                  onClick={getNext}
-                  disabled={isSubmitting}
-                  className="btn-responsive mb-2"
-                  style={{ width: "100%" }}
-                >
-                  Skip <CaretRightFill />
-                </Button>
-              )}
-              {!status ? (
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={submitResults}
-                  disabled={isSubmitting}
-                  className="btn-responsive"
-                  style={{ width: "100%" }}
-                >
-                  {isSubmitting ? "Submitting..." : "Submit"}
-                </Button>
-              ) : (
-                <Button
-                  variant="primary"
-                  type="button"
-                  onClick={getNext}
-                  className="btn-responsive"
-                  style={{ width: "100%" }}
-                >
-                  Next
-                </Button>
-              )}
+              <div className="mt-auto" style={{ marginTop: "20px" }}>
+                {!status && (
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={getNext}
+                    disabled={isSubmitting}
+                    className="mb-2"
+                    style={{ width: "100%" }}
+                  >
+                    Skip <CaretRightFill />
+                  </Button>
+                )}
+                {!status ? (
+                  <Button
+                    variant="primary"
+                    type="button"
+                    onClick={submitResults}
+                    disabled={isSubmitting}
+                    style={{ width: "100%" }}
+                  >
+                    {isSubmitting ? "Submitting..." : "Submit"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    type="button"
+                    onClick={getNext}
+                    style={{ width: "100%" }}
+                  >
+                    Next
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* MOBILE: Image on top, options below */}
+          <div className="show-mobile">
+            {/* Image on top */}
+            <div style={{ marginBottom: "20px" }}>
+              <img
+                src={labelImage}
+                alt="Labeling data"
+                className="img-responsive"
+                style={{
+                  width: "100%",
+                  height: "auto",
+                  border: "2px solid #C0C2C9",
+                  opacity: status ? "0.33" : "1.0",
+                }}
+                onError={() => {
+                  setError(
+                    "Failed to display image. The image may be corrupted."
+                  );
+                  setLabelImage(null);
+                }}
+              />
+            </div>
+
+            {/* Options below */}
+            <div>
+              <Form.Group
+                controlId="formBasicCheckboxMobile"
+                style={{
+                  opacity: status ? "0.33" : "1.0",
+                }}
+              >
+                <Row>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="brain-mobile"
+                      type="checkbox"
+                      label="Brain"
+                      checked={brain}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#00A5E0",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setBrain(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="muscle-mobile"
+                      type="checkbox"
+                      label="Muscle"
+                      checked={muscle}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#EF9CDA",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setMuscle(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="eye-mobile"
+                      type="checkbox"
+                      label="Eye"
+                      checked={eye}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#89A1EF",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setEye(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="heart-mobile"
+                      type="checkbox"
+                      label="Heart"
+                      checked={heart}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#FECEF1",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setHeart(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="linenoise-mobile"
+                      type="checkbox"
+                      label="Line Noise"
+                      checked={linenoise}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#C2EABD",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setLinenoise(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="channoise-mobile"
+                      type="checkbox"
+                      label="Chan Noise"
+                      checked={channoise}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#32CBFF",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setChannoise(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="other-mobile"
+                      type="checkbox"
+                      label="Other"
+                      checked={other}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#DCF2B0",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setOther(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                  <Col xs={6} className="mb-2">
+                    <Form.Check
+                      id="unsure-mobile"
+                      type="checkbox"
+                      label="Unsure"
+                      checked={unsure}
+                      disabled={!!status || isSubmitting}
+                      style={{
+                        textAlign: "left",
+                        paddingLeft: "30px",
+                        borderRadius: "10px",
+                        background: "#FFE5B4",
+                        padding: "10px",
+                      }}
+                      onChange={(e) => {
+                        setUnsure(e.target.checked);
+                        setValidationError("");
+                      }}
+                    />
+                  </Col>
+                </Row>
+              </Form.Group>
+
+              <div style={{ marginTop: "20px" }}>
+                <Row>
+                  {!status && (
+                    <Col xs={6} className="mb-2">
+                      <Button
+                        variant="secondary"
+                        type="button"
+                        onClick={getNext}
+                        disabled={isSubmitting}
+                        style={{ width: "100%" }}
+                      >
+                        Skip <CaretRightFill />
+                      </Button>
+                    </Col>
+                  )}
+                  <Col xs={!status ? 6 : 12}>
+                    {!status ? (
+                      <Button
+                        variant="primary"
+                        type="button"
+                        onClick={submitResults}
+                        disabled={isSubmitting}
+                        style={{ width: "100%" }}
+                      >
+                        {isSubmitting ? "Submitting..." : "Submit"}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        type="button"
+                        onClick={getNext}
+                        style={{ width: "100%" }}
+                      >
+                        Next
+                      </Button>
+                    )}
+                  </Col>
+                </Row>
+              </div>
             </div>
           </div>
         </div>
