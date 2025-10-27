@@ -16,20 +16,23 @@ import "../styles/responsive.css";
 
 const LabelPage = () => {
   const context = useContext(AuthContext);
-  const isMountedRef = useRef(true);
-  const currentBlobRef = useRef(null);
-  const nextBlobRef = useRef(null);
+  const [skipCooldown, setSkipCooldown] = useState(0); // 0 = no cooldown
 
+  //Loading variables
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  //Label image data
   const [labelImage, setLabelImage] = useState(null);
   const [labelFile, setLabelFile] = useState("");
+  const [imageLoaded, setImageLoaded] = useState(false);
 
+  //Prefetch next image (NEW)
   const [nextImage, setNextImage] = useState(null);
   const [nextFile, setNextFile] = useState("");
   const [isPrefetching, setIsPrefetching] = useState(false);
 
+  //Checkbox values
   const [brain, setBrain] = useState(false);
   const [muscle, setMuscle] = useState(false);
   const [eye, setEye] = useState(false);
@@ -39,32 +42,33 @@ const LabelPage = () => {
   const [other, setOther] = useState(false);
   const [unsure, setUnsure] = useState(false);
 
+  //Submission
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [validationError, setValidationError] = useState("");
 
+  // Retry mechanism
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
+
+  // Refs to prevent cleanup during load
+  const imageRef = useRef(null);
+  const currentBlobUrl = useRef(null);
+  const nextBlobUrl = useRef(null);
+
+  // Cleanup blob URLs when component unmounts
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
-      isMountedRef.current = false;
-      if (currentBlobRef.current) {
-        URL.revokeObjectURL(currentBlobRef.current);
+      if (currentBlobUrl.current) {
+        URL.revokeObjectURL(currentBlobUrl.current);
+        currentBlobUrl.current = null;
       }
-      if (nextBlobRef.current) {
-        URL.revokeObjectURL(nextBlobRef.current);
+      if (nextBlobUrl.current) {
+        URL.revokeObjectURL(nextBlobUrl.current);
+        nextBlobUrl.current = null;
       }
     };
   }, []);
-
-  const revokeBlobURL = (url) => {
-    if (url && url.startsWith("blob:")) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        console.warn("Failed to revoke blob URL:", e);
-      }
-    }
-  };
 
   const validateSelection = () => {
     const hasSelection =
@@ -76,23 +80,27 @@ const LabelPage = () => {
       channoise ||
       other ||
       unsure;
+
     if (!hasSelection) {
       setValidationError(
         "Please select at least one label before submitting, or click Skip to move to the next component."
       );
       return false;
     }
+
     setValidationError("");
     return true;
   };
 
+  // NEW: Prefetch next image in background
   const prefetchNextImage = async (email) => {
-    if (isPrefetching || !email || email === "guest" || !isMountedRef.current)
-      return;
+    if (isPrefetching || !email || email === "guest") return;
 
+    console.log("🔄 Prefetching next image...");
     setIsPrefetching(true);
 
     try {
+      // Get next filename
       const filenameResponse = await axios.get("/dropbox/imagefile", {
         params: { email },
         timeout: 30000,
@@ -100,71 +108,98 @@ const LabelPage = () => {
 
       const filename = filenameResponse.data;
 
-      if (!filename || !isMountedRef.current) {
-        setIsPrefetching(false);
-        return;
+      if (!filename) {
+        throw new Error("No filename received");
       }
 
+      console.log("📋 Next filename:", filename);
+      setNextFile(filename);
+
+      // Check cache first
       const cachedUrl = sessionStorage.getItem(`img_${filename}`);
       if (cachedUrl) {
-        if (isMountedRef.current) {
-          setNextFile(filename);
-          setNextImage(cachedUrl);
-          nextBlobRef.current = cachedUrl;
+        // Validate cached URL
+        try {
+          const testResponse = await fetch(cachedUrl, { method: "HEAD" });
+          if (testResponse.ok) {
+            console.log("✓ Next image already cached");
+            nextBlobUrl.current = cachedUrl;
+            setNextImage(cachedUrl);
+            setIsPrefetching(false);
+            return;
+          } else {
+            sessionStorage.removeItem(`img_${filename}`);
+          }
+        } catch (e) {
+          sessionStorage.removeItem(`img_${filename}`);
         }
-        setIsPrefetching(false);
-        return;
       }
 
+      // Fetch image as blob
+      console.log("⬇️ Downloading next image...");
       const imageResponse = await axios.get("/dropbox/imagedata", {
         responseType: "blob",
         params: { imagefile: filename },
-        timeout: 30000,
+        timeout: 45000,
       });
 
-      if (!isMountedRef.current) {
-        setIsPrefetching(false);
-        return;
+      if (!imageResponse.data || imageResponse.data.size === 0) {
+        throw new Error("Empty image data received for prefetch");
+      }
+
+      // Verify it's an image
+      if (!imageResponse.data.type.startsWith("image/")) {
+        throw new Error(`Invalid image type: ${imageResponse.data.type}`);
       }
 
       const imageUrl = URL.createObjectURL(imageResponse.data);
+      nextBlobUrl.current = imageUrl;
 
+      // Cache it
       try {
         sessionStorage.setItem(`img_${filename}`, imageUrl);
+        console.log("💾 Cached next image");
       } catch (e) {
+        console.warn("SessionStorage full, clearing cache");
         const keys = Object.keys(sessionStorage);
         keys
           .filter((k) => k.startsWith("img_"))
           .slice(0, 10)
-          .forEach((k) => sessionStorage.removeItem(k));
-        try {
-          sessionStorage.setItem(`img_${filename}`, imageUrl);
-        } catch (e2) {}
+          .forEach((k) => {
+            const urlToRevoke = sessionStorage.getItem(k);
+            if (urlToRevoke && urlToRevoke.startsWith("blob:")) {
+              URL.revokeObjectURL(urlToRevoke);
+            }
+            sessionStorage.removeItem(k);
+          });
+        // Try caching again
+        sessionStorage.setItem(`img_${filename}`, imageUrl);
       }
 
-      if (isMountedRef.current) {
-        setNextImage(imageUrl);
-        setNextFile(filename);
-        nextBlobRef.current = imageUrl;
-      } else {
-        URL.revokeObjectURL(imageUrl);
-      }
+      setNextImage(imageUrl);
+      console.log("✅ Next image prefetched successfully");
     } catch (error) {
-      console.error("Prefetch error:", error);
+      console.error("❌ Prefetch error (non-critical):", error);
+      // Don't show error to user - prefetch failures are silent
     } finally {
-      if (isMountedRef.current) {
-        setIsPrefetching(false);
-      }
+      setIsPrefetching(false);
     }
   };
 
   const submitResults = async () => {
-    if (!validateSelection() || isSubmitting) return;
+    if (!validateSelection()) {
+      return;
+    }
+
+    if (isSubmitting) {
+      return;
+    }
 
     setIsSubmitting(true);
     setError("");
 
     let tags = [];
+
     if (brain) tags.push("Brain");
     if (muscle) tags.push("Muscle");
     if (eye) tags.push("Eye");
@@ -184,57 +219,68 @@ const LabelPage = () => {
           domain: context.Domain,
           weight: context.Weight,
         },
-        { timeout: 15000 }
+        {
+          timeout: 15000,
+        }
       );
 
-      if (response.data && isMountedRef.current) {
+      if (response.data) {
+        console.log("Submission successful:", response.data);
         setStatus("success");
         setValidationError("");
+
+        // ⭐ Start prefetching next image while user views results
         prefetchNextImage(context.Email);
+      } else {
+        throw new Error("Empty response from server");
       }
     } catch (err) {
-      if (isMountedRef.current) {
-        setStatus("failed");
-        setError(
-          err.response?.data?.message || err.message || "Submission failed."
-        );
-      }
+      console.error("Submission error:", err);
+      setStatus("failed");
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          "Submission failed. Please try again."
+      );
     } finally {
-      if (isMountedRef.current) {
-        setIsSubmitting(false);
-      }
+      setIsSubmitting(false);
     }
   };
 
   const getNext = () => {
+    console.log("Getting next image...");
     setStatus("");
     setError("");
     setValidationError("");
+    setRetryCount(0);
 
-    if (currentBlobRef.current) {
-      revokeBlobURL(currentBlobRef.current);
-      currentBlobRef.current = null;
-    }
-
-    setLabelImage(null);
-    setLabelFile("");
+    // Don't cleanup current image yet - will be cleaned up after new image loads
+    setImageLoaded(false);
     getImage();
   };
 
-  const getImage = async () => {
-    if (nextImage && nextFile && isMountedRef.current) {
-      setLabelImage(nextImage);
-      setLabelFile(nextFile);
+  const getImage = async (isRetry = false) => {
+    // ⭐ CHECK FOR PREFETCHED IMAGE FIRST
+    if (nextImage && nextFile && !isRetry) {
+      console.log("⚡ Using prefetched image - INSTANT LOAD!");
 
-      currentBlobRef.current = nextImage;
-
-      if (nextBlobRef.current === nextImage) {
-        nextBlobRef.current = null;
+      // Cleanup old current image
+      if (currentBlobUrl.current && currentBlobUrl.current !== nextImage) {
+        URL.revokeObjectURL(currentBlobUrl.current);
       }
 
+      // Use the prefetched image
+      currentBlobUrl.current = nextBlobUrl.current;
+      setLabelImage(nextImage);
+      setLabelFile(nextFile);
+      setImageLoaded(false); // Will be set by onLoad
+
+      // Clear prefetch state
+      nextBlobUrl.current = null;
       setNextImage(null);
       setNextFile("");
 
+      // Reset checkboxes
       setBrain(false);
       setMuscle(false);
       setEye(false);
@@ -244,20 +290,28 @@ const LabelPage = () => {
       setOther(false);
       setUnsure(false);
 
+      // Immediately prefetch the next one in background
       const email = localStorage.getItem("Email");
       if (email && email !== "guest") {
         setTimeout(() => prefetchNextImage(email), 100);
       }
 
+      return; // EXIT EARLY - NO LOADING NEEDED!
+    }
+
+    // ORIGINAL LOADING LOGIC (if no prefetch available)
+    if (isLoading) {
+      console.log("Already loading, skipping request");
       return;
     }
 
-    if (isLoading) return;
-
     setIsLoading(true);
-    setError("");
-    setValidationError("");
+    if (!isRetry) {
+      setError("");
+      setValidationError("");
+    }
 
+    //Set all checkboxes to blank
     setBrain(false);
     setMuscle(false);
     setEye(false);
@@ -275,88 +329,194 @@ const LabelPage = () => {
       return;
     }
 
+    console.log("Getting image file for:", email);
+
     try {
-      const filenameResponse = await axios.get("/dropbox/imagefile", {
-        params: { email: email },
-        timeout: 30000,
-      });
+      // Get image filename (only if not retrying with same file)
+      let filename = labelFile;
 
-      if (!filenameResponse.data || !isMountedRef.current) {
-        throw new Error("No filename received from server");
+      if (!isRetry || !filename) {
+        const filenameResponse = await axios.get("/dropbox/imagefile", {
+          params: { email: email },
+          timeout: 30000,
+        });
+
+        console.log("Got filename:", filenameResponse.data);
+
+        if (!filenameResponse.data) {
+          throw new Error("No filename received from server");
+        }
+
+        filename = filenameResponse.data;
+        setLabelFile(filename);
       }
 
-      const filename = filenameResponse.data;
-      setLabelFile(filename);
+      // Check sessionStorage cache first (but not on retry)
+      if (!isRetry) {
+        const cachedUrl = sessionStorage.getItem(`img_${filename}`);
+        if (cachedUrl) {
+          console.log("✓ Using cached image URL");
 
-      const cachedUrl = sessionStorage.getItem(`img_${filename}`);
-      if (cachedUrl && isMountedRef.current) {
-        setLabelImage(cachedUrl);
-        currentBlobRef.current = cachedUrl;
-        setIsLoading(false);
-        prefetchNextImage(email);
-        return;
+          // Validate cached URL still works
+          try {
+            const testResponse = await fetch(cachedUrl, { method: "HEAD" });
+            if (testResponse.ok) {
+              // Cleanup old current image
+              if (
+                currentBlobUrl.current &&
+                currentBlobUrl.current !== cachedUrl
+              ) {
+                URL.revokeObjectURL(currentBlobUrl.current);
+              }
+
+              currentBlobUrl.current = cachedUrl;
+              setLabelImage(cachedUrl);
+              setImageLoaded(false);
+              setIsLoading(false);
+
+              // Start prefetching next image
+              prefetchNextImage(email);
+              return;
+            } else {
+              console.log("Cached URL invalid, removing from cache");
+              sessionStorage.removeItem(`img_${filename}`);
+            }
+          } catch (e) {
+            console.log("Cached URL test failed:", e);
+            sessionStorage.removeItem(`img_${filename}`);
+          }
+        }
       }
 
+      // Get image data as BLOB
+      console.log("✗ Fetching image from server:", filename);
       const imageResponse = await axios.get("/dropbox/imagedata", {
         responseType: "blob",
         params: { imagefile: filename },
-        timeout: 30000,
+        timeout: 45000,
       });
 
-      if (
-        !imageResponse.data ||
-        imageResponse.data.size === 0 ||
-        !isMountedRef.current
-      ) {
+      console.log("Got image data, size:", imageResponse.data.size, "bytes");
+
+      if (!imageResponse.data || imageResponse.data.size === 0) {
         throw new Error("Empty image data received");
       }
 
+      // Verify it's actually an image
+      if (!imageResponse.data.type.startsWith("image/")) {
+        throw new Error(`Invalid image type: ${imageResponse.data.type}`);
+      }
+
+      // Cleanup old blob URL before creating new one
+      if (currentBlobUrl.current) {
+        URL.revokeObjectURL(currentBlobUrl.current);
+      }
+
+      // Create object URL from blob
       const imageUrl = URL.createObjectURL(imageResponse.data);
+      currentBlobUrl.current = imageUrl;
 
-      try {
-        sessionStorage.setItem(`img_${filename}`, imageUrl);
-      } catch (e) {
-        const keys = Object.keys(sessionStorage);
-        keys
-          .filter((k) => k.startsWith("img_"))
-          .slice(0, 10)
-          .forEach((k) => sessionStorage.removeItem(k));
-      }
-
-      if (isMountedRef.current) {
-        setLabelImage(imageUrl);
-        currentBlobRef.current = imageUrl;
-        setIsLoading(false);
-        prefetchNextImage(email);
-      } else {
-        URL.revokeObjectURL(imageUrl);
-      }
-    } catch (error) {
-      if (isMountedRef.current) {
-        let errorMsg = "Error loading image. ";
-        if (error.code === "ECONNABORTED") {
-          errorMsg += "Request timed out.";
-        } else if (error.response) {
-          errorMsg +=
-            error.response.data?.error ||
-            error.response.statusText ||
-            "Server error.";
-        } else if (error.request) {
-          errorMsg += "No response from server.";
-        } else {
-          errorMsg += error.message || "Unknown error.";
+      // Cache the URL in sessionStorage (don't cache on retry)
+      if (!isRetry) {
+        try {
+          sessionStorage.setItem(`img_${filename}`, imageUrl);
+        } catch (e) {
+          console.warn("SessionStorage full, clearing cache");
+          const keys = Object.keys(sessionStorage);
+          keys
+            .filter((k) => k.startsWith("img_"))
+            .slice(0, 10)
+            .forEach((k) => {
+              const urlToRevoke = sessionStorage.getItem(k);
+              if (urlToRevoke && urlToRevoke.startsWith("blob:")) {
+                URL.revokeObjectURL(urlToRevoke);
+              }
+              sessionStorage.removeItem(k);
+            });
         }
-        setError(errorMsg);
-        setIsLoading(false);
       }
+
+      setLabelImage(imageUrl);
+      setImageLoaded(false);
+      setIsLoading(false);
+      setRetryCount(0);
+
+      // Start prefetching next image
+      prefetchNextImage(email);
+    } catch (error) {
+      console.error("Error loading image:", error);
+
+      // Check if we should retry
+      if (retryCount < maxRetries) {
+        console.log(`Retrying... Attempt ${retryCount + 1} of ${maxRetries}`);
+        setRetryCount(retryCount + 1);
+        setIsLoading(false);
+
+        // Wait before retrying (exponential backoff)
+        setTimeout(() => {
+          getImage(true);
+        }, 1000 * (retryCount + 1));
+        return;
+      }
+
+      let errorMsg = "Unable to load image. ";
+
+      if (error.code === "ECONNABORTED") {
+        errorMsg += "Connection timed out.";
+      } else if (error.response) {
+        errorMsg += error.response.data?.error || "Server error occurred.";
+      } else if (error.request) {
+        errorMsg += "No response from server.";
+      } else {
+        errorMsg += error.message || "Unknown error.";
+      }
+
+      setError(errorMsg);
+      setIsLoading(false);
+      setRetryCount(0);
+      setLabelImage(null);
+      setLabelFile("");
     }
   };
 
   useEffect(() => {
-    if (!status && !labelImage && !isLoading && isMountedRef.current) {
+    if (!status && !labelImage && !isLoading && !nextImage) {
       getImage();
     }
   }, []);
+
+  // Handle image load success
+  const handleImageLoad = () => {
+    console.log("✓ Image rendered successfully");
+    setImageLoaded(true);
+    setError("");
+  };
+
+  // Handle image load error
+  const handleImageError = (e) => {
+    console.error("✗ Image failed to render");
+
+    // Only retry if we haven't exceeded max retries
+    if (retryCount < maxRetries) {
+      console.log(
+        `Image render failed, retrying... Attempt ${
+          retryCount + 1
+        } of ${maxRetries}`
+      );
+      setRetryCount(retryCount + 1);
+      setLabelImage(null);
+      setImageLoaded(false);
+
+      setTimeout(() => {
+        getImage(true);
+      }, 1000 * (retryCount + 1));
+    } else {
+      // Max retries exceeded - just move to next image
+      console.log("Max retries exceeded, loading next image");
+      setRetryCount(0);
+      setTimeout(() => getNext(), 500);
+    }
+  };
 
   const renderLabelingInterface = () => (
     <>
@@ -365,16 +525,27 @@ const LabelPage = () => {
           className="mobile-padding-sm"
           style={{ width: "100%", maxWidth: "600px", marginBottom: "10px" }}
         >
-          <Alert variant="danger" dismissible onClose={() => setError("")}>
-            <Alert.Heading>Error</Alert.Heading>
+          <Alert variant="warning" dismissible onClose={() => setError("")}>
+            <Alert.Heading>Connection Issue</Alert.Heading>
             <p>{error}</p>
+            {retryCount > 0 && (
+              <p>
+                <small>
+                  Retry attempt: {retryCount}/{maxRetries}
+                </small>
+              </p>
+            )}
             <Button
-              variant="outline-danger"
+              variant="outline-warning"
               size="sm"
-              onClick={getNext}
+              onClick={() => {
+                setRetryCount(0);
+                setError("");
+                getNext();
+              }}
               className="btn-responsive"
             >
-              Try Again
+              Try Next Image
             </Button>
           </Alert>
         </Container>
@@ -390,7 +561,7 @@ const LabelPage = () => {
             dismissible
             onClose={() => setValidationError("")}
           >
-            <Alert.Heading>Validation Error</Alert.Heading>
+            <Alert.Heading>Selection Required</Alert.Heading>
             <p>{validationError}</p>
           </Alert>
         </Container>
@@ -407,12 +578,19 @@ const LabelPage = () => {
             padding: "10px",
           }}
         >
+          {/* DESKTOP: Side by side */}
           <div
             className="hide-mobile"
-            style={{ display: "flex", flexDirection: "row", gap: "20px" }}
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              gap: "20px",
+            }}
           >
+            {/* Image on left */}
             <div style={{ flex: "1", minWidth: "0" }}>
               <img
+                ref={imageRef}
                 src={labelImage}
                 alt="Labeling data"
                 className="img-responsive"
@@ -422,13 +600,12 @@ const LabelPage = () => {
                   border: "2px solid #C0C2C9",
                   opacity: status ? "0.33" : "1.0",
                 }}
-                onError={() => {
-                  setError("Failed to display image.");
-                  setLabelImage(null);
-                }}
+                onLoad={handleImageLoad}
+                onError={handleImageError}
               />
             </div>
 
+            {/* Options on right */}
             <div
               style={{
                 flex: "0 0 auto",
@@ -441,7 +618,10 @@ const LabelPage = () => {
               <Form.Group
                 className="flex-column"
                 controlId="formBasicCheckbox"
-                style={{ opacity: status ? "0.33" : "1.0", flex: "1" }}
+                style={{
+                  opacity: status ? "0.33" : "1.0",
+                  flex: "1",
+                }}
               >
                 <Form.Check
                   id="brain"
@@ -594,12 +774,36 @@ const LabelPage = () => {
                   <Button
                     variant="secondary"
                     type="button"
-                    onClick={getNext}
-                    disabled={isSubmitting}
+                    onClick={() => {
+                      if (skipCooldown > 0) return; // prevent spam clicks
+                      setSkipCooldown(1);
+                      getNext();
+
+                      const countdown = setInterval(() => {
+                        setSkipCooldown((prev) => {
+                          if (prev <= 1) {
+                            clearInterval(countdown);
+                            return 0;
+                          }
+                          return prev - 1;
+                        });
+                      }, 1000);
+                    }}
+                    disabled={isSubmitting || skipCooldown > 0}
                     className="mb-2"
-                    style={{ width: "100%" }}
+                    style={{
+                      width: "100%",
+                      opacity: skipCooldown > 0 ? 0.6 : 1, // slightly faded when disabled
+                      cursor: skipCooldown > 0 ? "not-allowed" : "pointer",
+                    }}
                   >
-                    Skip <CaretRightFill />
+                    {skipCooldown > 0 ? (
+                      `${skipCooldown}`
+                    ) : (
+                      <>
+                        Skip <CaretRightFill />
+                      </>
+                    )}
                   </Button>
                 )}
                 {!status ? (
@@ -626,6 +830,7 @@ const LabelPage = () => {
             </div>
           </div>
 
+          {/* MOBILE: Image on top, options below */}
           <div className="show-mobile">
             <div style={{ marginBottom: "20px" }}>
               <img
@@ -638,16 +843,17 @@ const LabelPage = () => {
                   border: "2px solid #C0C2C9",
                   opacity: status ? "0.33" : "1.0",
                 }}
-                onError={() => {
-                  setError("Failed to display image.");
-                  setLabelImage(null);
-                }}
+                onLoad={handleImageLoad}
+                onError={handleImageError}
               />
             </div>
+
             <div>
               <Form.Group
                 controlId="formBasicCheckboxMobile"
-                style={{ opacity: status ? "0.33" : "1.0" }}
+                style={{
+                  opacity: status ? "0.33" : "1.0",
+                }}
               >
                 <Row>
                   <Col xs={6} className="mb-2">
@@ -812,6 +1018,7 @@ const LabelPage = () => {
                   </Col>
                 </Row>
               </Form.Group>
+
               <div style={{ marginTop: "20px" }}>
                 <Row>
                   {!status && (
@@ -819,11 +1026,35 @@ const LabelPage = () => {
                       <Button
                         variant="secondary"
                         type="button"
-                        onClick={getNext}
-                        disabled={isSubmitting}
-                        style={{ width: "100%" }}
+                        onClick={() => {
+                          if (skipCooldown > 0) return;
+                          setSkipCooldown(1);
+                          getNext();
+
+                          const countdown = setInterval(() => {
+                            setSkipCooldown((prev) => {
+                              if (prev <= 1) {
+                                clearInterval(countdown);
+                                return 0;
+                              }
+                              return prev - 1;
+                            });
+                          }, 1000);
+                        }}
+                        disabled={isSubmitting || skipCooldown > 0}
+                        style={{
+                          width: "100%",
+                          opacity: skipCooldown > 0 ? 0.6 : 1,
+                          cursor: skipCooldown > 0 ? "not-allowed" : "pointer",
+                        }}
                       >
-                        Skip <CaretRightFill />
+                        {skipCooldown > 0 ? (
+                          `${skipCooldown}`
+                        ) : (
+                          <>
+                            Skip <CaretRightFill />
+                          </>
+                        )}
                       </Button>
                     </Col>
                   )}
@@ -854,18 +1085,7 @@ const LabelPage = () => {
             </div>
           </div>
         </div>
-      ) : (
-        <Container className="mobile-padding-sm" style={{ paddingTop: "50px" }}>
-          <Alert variant="info">No image to display.</Alert>
-          <Button
-            variant="primary"
-            onClick={getNext}
-            className="btn-responsive"
-          >
-            Load Image
-          </Button>
-        </Container>
-      )}
+      ) : null}
 
       <br />
       {status === "success" && (
@@ -903,7 +1123,7 @@ const LabelPage = () => {
           <Alert variant="danger">
             <Row>
               <Col xs={12} md={8} className="mb-2 mb-md-0">
-                ✗ Submission Failed. {error}
+                ✗ Label Submission Failed. {error}
               </Col>
               <Col
                 xs={12}

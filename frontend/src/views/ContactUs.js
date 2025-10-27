@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import { React, useState, useEffect } from "react";
 import Container from "react-bootstrap/Container";
 import Tabs from "react-bootstrap/Tabs";
