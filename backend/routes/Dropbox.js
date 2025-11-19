@@ -368,25 +368,51 @@ router.get("/imagedata", (req, res) => {
 
   console.log("Downloading file from Dropbox:", file);
 
-  res.set({
-    "Cache-Control": "public, max-age=31536000",
-    "Content-Type": "image/jpeg",
-    "Access-Control-Allow-Origin": "*",
+  // ✅ CONFIGURABLE CACHE HEADERS
+  const isDevelopment = process.env.NODE_ENV !== "production";
+
+  if (isDevelopment) {
+    // Development: No caching for easier testing
+    res.set({
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Content-Type": "image/jpeg",
+      "Access-Control-Allow-Origin": "*",
+    });
+  } else {
+    // Production: Short cache for performance
+    res.set({
+      "Cache-Control": "public, max-age=3600", // 1 hour instead of 1 year
+      "Content-Type": "image/jpeg",
+      "Access-Control-Allow-Origin": "*",
+    });
+  }
+
+  const dropboxStream = dropbox({
+    resource: "files/download",
+    parameters: { path: file },
   });
 
-  dropbox(
-    {
-      resource: "files/download",
-      parameters: { path: file },
-    },
-    (err, result, response) => {
-      if (err) {
-        console.log("get image data err: ", err);
-        console.log("Failed path was:", file);
-        return res.status(500).json({ error: "Failed to download image" });
-      }
+  dropboxStream.on("error", (err) => {
+    console.error("Dropbox download error:", err);
+    console.error("Failed path was:", file);
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "File not found in Dropbox",
+        file: imagefile,
+      });
+    } else {
+      res.end();
     }
-  ).pipe(res);
+  });
+
+  res.on("error", (err) => {
+    console.error("Response stream error:", err);
+  });
+
+  dropboxStream.pipe(res);
 });
 
 router.get("/mat", (req, res) => {
